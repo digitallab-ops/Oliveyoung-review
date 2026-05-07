@@ -6,6 +6,25 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 
+try:
+    from curl_cffi import requests as cf_requests
+    _IMPERSONATE = "chrome124"
+except ImportError:
+    cf_requests = requests
+    _IMPERSONATE = None
+
+
+def _cf_post(url, **kwargs):
+    if _IMPERSONATE:
+        return cf_requests.post(url, impersonate=_IMPERSONATE, **kwargs)
+    return requests.post(url, **kwargs)
+
+
+def _cf_get(url, **kwargs):
+    if _IMPERSONATE:
+        return cf_requests.get(url, impersonate=_IMPERSONATE, **kwargs)
+    return requests.get(url, **kwargs)
+
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
@@ -96,8 +115,8 @@ def fetch_new_review_ids(goods_no: str, existing_ids: set, size: int = 50) -> li
             "reviewType": "ALL",
         }
         try:
-            res = requests.post(url, json=payload, headers=HEADERS_API, timeout=15)
-        except requests.RequestException as e:
+            res = _cf_post(url, json=payload, headers=HEADERS_API, timeout=15)
+        except Exception as e:
             print(f"    요청 오류: {e}")
             break
 
@@ -131,7 +150,7 @@ def fetch_new_review_ids(goods_no: str, existing_ids: set, size: int = 50) -> li
 
 
 def fetch_review_detail(review_id: int) -> dict | None:
-    res = requests.get(
+    res = _cf_get(
         f"https://m.oliveyoung.co.kr/review/api/v2/reviews/{review_id}",
         headers=HEADERS_API, timeout=10
     )
