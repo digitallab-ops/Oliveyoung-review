@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 *.db
 .playwright/
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.env.local

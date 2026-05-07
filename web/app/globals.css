@@ -1,0 +1,72 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-pretendard: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: #FAFAF9;
+  color: #1C1917;
+  font-family: var(--font-pretendard);
+}
+
+/* 스크롤바 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #E8E4DE; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #C8C4BE; }
+
+/* 텍스트 선택 색상 */
+::selection {
+  background: #FDF3EC;
+  color: #7C3D1F;
+}
+
+/* 리뷰 텍스트 — 줄바꿈 보존 */
+.review-content {
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+/* 스켈레톤 shimmer */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #F0EDE8 0px,
+    #FAF8F5 80px,
+    #F0EDE8 160px
+  );
+  background-size: 400px;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* 필터 바 스크롤 (모바일) */
+.filter-scroll {
+  scrollbar-width: none;
+}
+.filter-scroll::-webkit-scrollbar { display: none; }
+
+/* 리뷰 카드 3줄 클램프 */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
