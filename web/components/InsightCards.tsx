@@ -6,7 +6,6 @@ interface InsightCardsProps {
 
 function KeywordTag({
   kw,
-  index,
   total,
   maxCnt,
   minCnt,
