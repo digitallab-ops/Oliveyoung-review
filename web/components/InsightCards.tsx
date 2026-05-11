@@ -1,11 +1,61 @@
-import type { Insights } from '@/lib/types'
+import type { Insights, KeywordItem } from '@/lib/types'
 
 interface InsightCardsProps {
   insights: Insights
 }
 
+function KeywordTag({
+  kw,
+  index,
+  total,
+  maxCnt,
+  minCnt,
+  variant,
+}: {
+  kw: KeywordItem
+  total: number
+  maxCnt: number
+  minCnt: number
+  variant: 'positive' | 'negative'
+}) {
+  const range = maxCnt - minCnt || 1
+  const ratio = (kw.cnt - minCnt) / range
+  const fontSize = Math.round(12 + ratio * 8)
+  const opacity = 0.5 + ratio * 0.5
+  const pct = total > 0 ? (kw.cnt / total * 100).toFixed(1) : '0.0'
+
+  const colorClass = variant === 'positive'
+    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+    : 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-red-50 hover:text-red-800 hover:border-red-200'
+
+  return (
+    <span className="relative group/tag">
+      <span
+        className={`inline-flex items-center px-2.5 py-1 rounded-full font-medium border cursor-default transition-colors ${colorClass}`}
+        style={{ fontSize: `${fontSize}px`, opacity }}
+      >
+        #{kw.word}
+      </span>
+      <span
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                   px-2.5 py-1.5 rounded-md bg-gray-900 text-white text-xs whitespace-nowrap
+                   opacity-0 group-hover/tag:opacity-100 pointer-events-none
+                   transition-opacity duration-150 z-20 shadow-lg"
+      >
+        {kw.word} · {kw.cnt.toLocaleString()}회 언급 · 전체 리뷰의 {pct}%
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+      </span>
+    </span>
+  )
+}
+
 export default function InsightCards({ insights }: InsightCardsProps) {
   const skinTotal = insights.skin_dist.reduce((s, r) => s + r.cnt, 0)
+
+  const posMax = insights.positive_keywords[0]?.cnt ?? 0
+  const posMin = insights.positive_keywords[insights.positive_keywords.length - 1]?.cnt ?? 0
+  const negMax = insights.negative_keywords[0]?.cnt ?? 0
+  const negMin = insights.negative_keywords[insights.negative_keywords.length - 1]?.cnt ?? 0
 
   return (
     <section className="space-y-3">
@@ -22,15 +72,15 @@ export default function InsightCards({ insights }: InsightCardsProps) {
           </p>
           {insights.positive_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {insights.positive_keywords.map((kw, i) => (
-                <span
-                  key={kw}
-                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium
-                             bg-emerald-50 text-emerald-800 border border-emerald-100"
-                  style={{ opacity: 1 - i * 0.08 }}
-                >
-                  #{kw}
-                </span>
+              {insights.positive_keywords.map((kw) => (
+                <KeywordTag
+                  key={kw.word}
+                  kw={kw}
+                  total={insights.total_reviews}
+                  maxCnt={posMax}
+                  minCnt={posMin}
+                  variant="positive"
+                />
               ))}
             </div>
           ) : (
@@ -40,21 +90,21 @@ export default function InsightCards({ insights }: InsightCardsProps) {
 
         {/* 부정 키워드 */}
         <div className="bg-surface border border-border rounded-lg p-4 md:p-5">
-          <p className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-stone-400 inline-block" />
+          <p className="text-xs font-semibold text-orange-700 mb-3 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
             아쉬운 점으로 언급
           </p>
           {insights.negative_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {insights.negative_keywords.map((kw, i) => (
-                <span
-                  key={kw}
-                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium
-                             bg-stone-50 text-stone-600 border border-stone-200"
-                  style={{ opacity: 1 - i * 0.1 }}
-                >
-                  #{kw}
-                </span>
+              {insights.negative_keywords.map((kw) => (
+                <KeywordTag
+                  key={kw.word}
+                  kw={kw}
+                  total={insights.total_reviews}
+                  maxCnt={negMax}
+                  minCnt={negMin}
+                  variant="negative"
+                />
               ))}
             </div>
           ) : (

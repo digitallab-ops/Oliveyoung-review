@@ -48,9 +48,15 @@ export interface SkinDist {
   cnt: number
 }
 
+export interface KeywordItem {
+  word: string
+  cnt: number
+}
+
 export interface Insights {
-  positive_keywords: string[]
-  negative_keywords: string[]
+  positive_keywords: KeywordItem[]
+  negative_keywords: KeywordItem[]
+  total_reviews: number
   skin_dist: SkinDist[]
   top_product: {
     goods_name: string

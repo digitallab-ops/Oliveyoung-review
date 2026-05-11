@@ -161,9 +161,15 @@ export async function getInsights(goodsNo?: string): Promise<Insights> {
     }
   }
 
+  const [countRow] = await query<{ total: string }>(
+    `SELECT COUNT(*) AS total FROM reviews r ${where}`, params
+  )
+  const totalReviews = Number(countRow?.total || 0)
+
   return {
-    positive_keywords: posRows.map(r => r.word),
-    negative_keywords: negRows.map(r => r.word),
+    positive_keywords: posRows.map(r => ({ word: r.word, cnt: Number(r.cnt) })),
+    negative_keywords: negRows.map(r => ({ word: r.word, cnt: Number(r.cnt) })),
+    total_reviews: totalReviews,
     skin_dist: skinRows.map(r => ({ skin_type: r.skin_type, cnt: Number(r.cnt) })),
     top_product: topProduct,
   }
