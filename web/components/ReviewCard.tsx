@@ -3,20 +3,23 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown } from 'lucide-react'
-import { cn, scoreColor, scoreStars } from '@/lib/utils'
+import { cn, scoreColor, scoreStars, extractShortName } from '@/lib/utils'
 import type { Review } from '@/lib/types'
 
 interface ReviewCardProps {
   review: Review
   index?: number
+  onProductClick?: (goodsNo: string) => void
+  isProductFiltered?: boolean
 }
 
 const PREVIEW_LEN = 120
 
-export default function ReviewCard({ review, index = 0 }: ReviewCardProps) {
+export default function ReviewCard({ review, index = 0, onProductClick, isProductFiltered = false }: ReviewCardProps) {
   const [expanded, setExpanded] = useState(false)
   const isLong = review.content.length > PREVIEW_LEN
   const color = scoreColor(review.score)
+  const shortName = review.goods_name ? extractShortName(review.goods_name) : null
 
   return (
     <motion.article
@@ -28,20 +31,28 @@ export default function ReviewCard({ review, index = 0 }: ReviewCardProps) {
       <div className="px-5 py-4 md:px-6 md:py-5">
         {/* 메타 행 */}
         <div className="flex items-center gap-2.5 flex-wrap mb-3">
-          {/* 별점 */}
-          <span
-            className="text-sm font-semibold tracking-wide"
-            style={{ color }}
-          >
+          <span className="text-sm font-semibold tracking-wide" style={{ color }}>
             {scoreStars(review.score)}
           </span>
 
-          {/* 날짜 */}
           <span className="text-xs text-text-tertiary">
             {review.created_at || ''}
           </span>
 
           <div className="flex items-center gap-1.5 ml-auto flex-wrap justify-end">
+            {/* 상품명 뱃지 — 전체 상품 보기 시에만 표시 */}
+            {!isProductFiltered && shortName && (
+              <button
+                onClick={() => onProductClick?.(review.goods_no)}
+                className="inline-flex items-center text-2xs font-semibold px-2 py-0.5 rounded-full
+                           bg-purple-50 text-purple-700 border border-purple-100
+                           hover:bg-purple-100 transition-colors duration-150"
+                title={review.goods_name}
+              >
+                {shortName}
+              </button>
+            )}
+
             {review.is_repurchase && (
               <span className="inline-flex items-center gap-1 text-2xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
                 재구매

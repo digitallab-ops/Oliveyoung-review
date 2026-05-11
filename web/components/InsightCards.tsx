@@ -1,7 +1,11 @@
+'use client'
+
 import type { Insights, KeywordItem } from '@/lib/types'
 
 interface InsightCardsProps {
   insights: Insights
+  onKeywordClick?: (word: string) => void
+  activeKeywords?: string[]
 }
 
 function KeywordTag({
@@ -10,31 +14,41 @@ function KeywordTag({
   maxCnt,
   minCnt,
   variant,
+  isActive,
+  onClick,
 }: {
   kw: KeywordItem
   total: number
   maxCnt: number
   minCnt: number
   variant: 'positive' | 'negative'
+  isActive: boolean
+  onClick?: (word: string) => void
 }) {
   const range = maxCnt - minCnt || 1
   const ratio = (kw.cnt - minCnt) / range
   const fontSize = Math.round(12 + ratio * 8)
-  const opacity = 0.5 + ratio * 0.5
+  const opacity = isActive ? 1 : 0.5 + ratio * 0.5
   const pct = total > 0 ? (kw.cnt / total * 100).toFixed(1) : '0.0'
 
-  const colorClass = variant === 'positive'
-    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-    : 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-red-50 hover:text-red-800 hover:border-red-200'
+  const activeClass = isActive
+    ? variant === 'positive'
+      ? 'bg-emerald-200 text-emerald-900 border-emerald-400 ring-2 ring-emerald-400'
+      : 'bg-orange-200 text-orange-900 border-orange-400 ring-2 ring-orange-400'
+    : variant === 'positive'
+      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+      : 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-red-50 hover:text-red-800 hover:border-red-200'
 
   return (
     <span className="relative group/tag">
-      <span
-        className={`inline-flex items-center px-2.5 py-1 rounded-full font-medium border cursor-default transition-colors ${colorClass}`}
+      <button
+        onClick={() => onClick?.(kw.word)}
+        className={`inline-flex items-center gap-0.5 px-2.5 py-1 rounded-full font-medium border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${activeClass}`}
         style={{ fontSize: `${fontSize}px`, opacity }}
       >
+        {isActive && <span className="text-[10px]">✓</span>}
         #{kw.word}
-      </span>
+      </button>
       <span
         className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
                    px-2.5 py-1.5 rounded-md bg-gray-900 text-white text-xs whitespace-nowrap
@@ -48,7 +62,7 @@ function KeywordTag({
   )
 }
 
-export default function InsightCards({ insights }: InsightCardsProps) {
+export default function InsightCards({ insights, onKeywordClick, activeKeywords = [] }: InsightCardsProps) {
   const skinTotal = insights.skin_dist.reduce((s, r) => s + r.cnt, 0)
 
   const posMax = insights.positive_keywords[0]?.cnt ?? 0
@@ -68,6 +82,7 @@ export default function InsightCards({ insights }: InsightCardsProps) {
           <p className="text-xs font-semibold text-emerald-700 mb-3 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
             자주 언급되는 장점
+            {onKeywordClick && <span className="text-text-tertiary font-normal ml-1">· 클릭하면 리뷰 필터링</span>}
           </p>
           {insights.positive_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -79,6 +94,8 @@ export default function InsightCards({ insights }: InsightCardsProps) {
                   maxCnt={posMax}
                   minCnt={posMin}
                   variant="positive"
+                  isActive={activeKeywords.includes(kw.word)}
+                  onClick={onKeywordClick}
                 />
               ))}
             </div>
@@ -92,6 +109,7 @@ export default function InsightCards({ insights }: InsightCardsProps) {
           <p className="text-xs font-semibold text-orange-700 mb-3 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
             아쉬운 점으로 언급
+            {onKeywordClick && <span className="text-text-tertiary font-normal ml-1">· 클릭하면 리뷰 필터링</span>}
           </p>
           {insights.negative_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -103,6 +121,8 @@ export default function InsightCards({ insights }: InsightCardsProps) {
                   maxCnt={negMax}
                   minCnt={negMin}
                   variant="negative"
+                  isActive={activeKeywords.includes(kw.word)}
+                  onClick={onKeywordClick}
                 />
               ))}
             </div>

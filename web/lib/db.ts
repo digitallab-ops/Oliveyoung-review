@@ -178,10 +178,11 @@ export async function getInsights(goodsNo?: string): Promise<Insights> {
 export async function getReviews(opts: {
   goodsNo?: string
   filter?: FilterType
+  keywords?: string[]
   page?: number
   limit?: number
 }): Promise<ReviewsResponse> {
-  const { goodsNo, filter = 'all', page = 0, limit = 20 } = opts
+  const { goodsNo, filter = 'all', keywords, page = 0, limit = 20 } = opts
   const offset = page * limit
 
   const conditions: string[] = ['r.content IS NOT NULL', "r.content != ''"]
@@ -197,6 +198,14 @@ export async function getReviews(opts: {
   if (filter === 'four_plus')  conditions.push('r.score >= 4')
   if (filter === 'negative')   conditions.push('r.score <= 3')
   if (filter === 'repurchase') conditions.push('r.is_repurchase = TRUE')
+
+  if (keywords && keywords.length > 0) {
+    const kwClauses = keywords.map(kw => {
+      params.push(`%${kw}%`)
+      return `r.content ILIKE $${idx++}`
+    })
+    conditions.push(`(${kwClauses.join(' OR ')})`)
+  }
 
   const where = 'WHERE ' + conditions.join(' AND ')
 

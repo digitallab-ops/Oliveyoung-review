@@ -8,9 +8,10 @@ export async function GET(req: NextRequest) {
   const filter   = (searchParams.get('filter')  || 'all') as FilterType
   const page     = parseInt(searchParams.get('page') || '0', 10)
   const limit    = parseInt(searchParams.get('limit') || '20', 10)
+  const keywords = searchParams.get('keywords')?.split(',').filter(Boolean)
 
   try {
-    const data = await getReviews({ goodsNo, filter, page, limit: Math.min(limit, 50) })
+    const data = await getReviews({ goodsNo, filter, keywords, page, limit: Math.min(limit, 50) })
     return NextResponse.json(data)
   } catch (e) {
     console.error(e)

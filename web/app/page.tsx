@@ -1,7 +1,6 @@
 import { getStats, getProducts, getInsights, getReviews, getScoreDist, getProductStats } from '@/lib/db'
 import KPIStrip from '@/components/KPIStrip'
-import InsightCards from '@/components/InsightCards'
-import ReviewFeed from '@/components/ReviewFeed'
+import KeywordFeedBridge from '@/components/KeywordFeedBridge'
 import StatsAccordion from '@/components/StatsAccordion'
 
 export const revalidate = 3600
@@ -72,23 +71,16 @@ export default async function Page() {
           <KPIStrip stats={stats} />
         </section>
 
-        {/* AI 인사이트 */}
-        <div className="animate-fade-up" style={{ animationDelay: '80ms' }}>
-          <InsightCards insights={insights} />
-        </div>
-
-        {/* 구분선 */}
-        <hr className="border-border-subtle" />
-
-        {/* 리뷰 피드 */}
-        <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
-          <div className="flex items-center gap-2 mb-5">
+        {/* 인사이트 + 리뷰 피드 (키워드 필터 연동) */}
+        <div className="animate-fade-up space-y-10" style={{ animationDelay: '80ms' }}>
+          <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold text-text-primary">리뷰</h2>
             <span className="text-sm text-text-tertiary">
               {stats.total_reviews.toLocaleString()}개
             </span>
           </div>
-          <ReviewFeed
+          <KeywordFeedBridge
+            insights={insights}
             initialReviews={reviewsData.reviews}
             initialTotal={reviewsData.total}
             initialHasMore={reviewsData.has_more}

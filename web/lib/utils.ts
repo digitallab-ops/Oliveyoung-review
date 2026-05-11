@@ -29,3 +29,11 @@ export function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text
   return text.slice(0, maxLen).trimEnd() + '...'
 }
+
+export function extractShortName(goods_name: string): string {
+  return goods_name
+    .replace(/\[.*?\]\s*/g, '')
+    .replace(/^셀퓨전씨\s*/, '')
+    .slice(0, 16)
+    .trim()
+}
