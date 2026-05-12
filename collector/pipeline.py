@@ -99,62 +99,69 @@ def fetch_brand_products_requests(brand_code: str) -> list[dict]:
 
 def fetch_new_review_ids(goods_no: str, existing_ids: set, size: int = 50) -> list[int]:
     """cursor 엔드포인트로 신규 리뷰 ID 수집.
-    - reviewType=ALL: 사진/텍스트 리뷰 모두
-    - sortType=USEFUL_SCORE_DESC: 유일하게 작동하는 정렬 (RECENT_DESC는 400 에러)
-    - hasNext=False까지 전체 순회 (유용순 정렬이라 새 리뷰가 맨 뒤에 있음)
+    - USEFUL_SCORE_DESC + RATING_DESC + RATING_ASC 3개 정렬로 수집
+    - 각 정렬당 최대 500개, 3개 합산 최대 ~1,300개 고유 리뷰
+    - RATING_DESC/ASC는 서로 겹침 0, USEFUL과도 ~70% 비겹침
     """
     url = "https://m.oliveyoung.co.kr/review/api/v2/reviews/cursor"
+    sort_types = ["USEFUL_SCORE_DESC", "RATING_DESC", "RATING_ASC"]
+    seen_this_run = set()
     new_ids = []
-    cursor_id = None
-    cursor_score = None
-    cursor_count = None
-    page = 0
 
-    while True:
-        payload = {
-            "goodsNumber": goods_no,
-            "page": page,
-            "size": size,
-            "sortType": "USEFUL_SCORE_DESC",
-            "reviewType": "ALL",
-        }
-        if cursor_id is not None:
-            payload["cursorId"] = cursor_id
-            payload["cursorScore"] = cursor_score
-            payload["cursorCount"] = cursor_count
+    for sort_type in sort_types:
+        cursor_id = None
+        cursor_score = None
+        cursor_count = None
+        page = 0
 
-        try:
-            res = _cf_post(url, json=payload, headers=HEADERS_API, timeout=15)
-        except Exception as e:
-            print(f"    요청 오류: {e}")
-            break
+        while True:
+            payload = {
+                "goodsNumber": goods_no,
+                "page": page,
+                "size": size,
+                "sortType": sort_type,
+                "reviewType": "ALL",
+            }
+            if cursor_id is not None:
+                payload["cursorId"] = cursor_id
+                payload["cursorScore"] = cursor_score
+                payload["cursorCount"] = cursor_count
 
-        if res.status_code != 200:
-            print(f"    cursor API {res.status_code} -스킵")
-            break
+            try:
+                res = _cf_post(url, json=payload, headers=HEADERS_API, timeout=15)
+            except Exception as e:
+                print(f"    요청 오류: {e}")
+                break
 
-        body = res.json()
-        data = body.get("data") or {}
-        reviews = data.get("goodsReviewList") or []
-        has_next = data.get("hasNext", False)
+            if res.status_code != 200:
+                print(f"    cursor API {res.status_code} ({sort_type}) -스킵")
+                break
 
-        if not reviews:
-            break
+            body = res.json()
+            data = body.get("data") or {}
+            reviews = data.get("goodsReviewList") or []
+            has_next = data.get("hasNext", False)
 
-        for r in reviews:
-            rid = r["reviewId"]
-            if rid not in existing_ids:
-                new_ids.append(rid)
+            if not reviews:
+                break
 
-        cursor_id = data.get("nextCursorId")
-        cursor_score = data.get("nextCursorScore")
-        cursor_count = data.get("nextCursorCount")
+            for r in reviews:
+                rid = r["reviewId"]
+                if rid not in existing_ids and rid not in seen_this_run:
+                    new_ids.append(rid)
+                    seen_this_run.add(rid)
 
-        if not has_next:
-            break
+            cursor_id = data.get("nextCursorId")
+            cursor_score = data.get("nextCursorScore")
+            cursor_count = data.get("nextCursorCount")
 
-        page += 1
-        time.sleep(random.uniform(0.5, 1.0))
+            if not has_next:
+                break
+
+            page += 1
+            time.sleep(random.uniform(0.5, 1.0))
+
+        time.sleep(random.uniform(1.0, 1.5))
 
     return new_ids
 
