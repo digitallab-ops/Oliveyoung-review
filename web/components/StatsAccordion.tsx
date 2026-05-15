@@ -63,7 +63,7 @@ export default function StatsAccordion({ scoreDist, productStats }: StatsAccordi
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-border-subtle/50 transition-colors"
       >
-        <span className="font-label text-[11px] tracking-[0.12em] uppercase text-text-secondary font-medium">상세 통계</span>
+        <span className="text-sm font-semibold text-text-secondary">상세 통계</span>
         <ChevronDown
           size={16}
           className={`text-text-tertiary transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
