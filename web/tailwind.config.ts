@@ -57,8 +57,8 @@ const config: Config = {
         '18':  '72px',
       },
       maxWidth: {
-        content: '680px',
-        wide:    '900px',
+        content: '1280px',
+        wide:    '1600px',
       },
       borderRadius: {
         '2xs': '4px',

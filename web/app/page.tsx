@@ -36,7 +36,7 @@ export default async function Page() {
     <div className="min-h-screen bg-background">
       {/* 헤더 */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border-subtle">
-        <div className="mx-auto max-w-content px-4 md:px-6 h-14 flex items-center justify-between">
+        <div className="mx-auto max-w-[1280px] px-4 md:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="font-label text-xs tracking-[0.12em] uppercase text-text-primary font-medium">
               CellFusionC
@@ -55,7 +55,7 @@ export default async function Page() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-content px-4 md:px-6 py-10 md:py-16 space-y-14">
+      <main className="mx-auto max-w-[1280px] px-4 md:px-6 py-10 md:py-16 space-y-14">
 
         {/* HERO */}
         <section className="space-y-6 animate-fade-up">
@@ -82,44 +82,43 @@ export default async function Page() {
           <KPIStrip stats={stats} />
         </section>
 
-        {/* 시계열 트렌드 */}
-        {timeSeries.length > 1 && (
-          <section className="animate-fade-up" style={{ animationDelay: '60ms' }}>
-            <div className="mb-5">
-              <SectionDivider tag="Trend" />
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-semibold text-text-primary">리뷰 트렌드</h2>
-                <span className="text-sm text-text-tertiary">{timeSeries.length}개월</span>
-              </div>
-            </div>
-            <div className="border border-border rounded-lg bg-surface px-5 py-4">
-              <TimeSeriesChart data={timeSeries} />
-            </div>
-          </section>
-        )}
+        {/* 2단 그리드: 왼쪽(트렌드+인사이트+불만) / 오른쪽(자사 순위) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-10 items-start animate-fade-up" style={{ animationDelay: '60ms' }}>
+          {/* 왼쪽 */}
+          <div className="space-y-10 min-w-0">
+            {timeSeries.length > 1 && (
+              <section>
+                <div className="mb-5">
+                  <SectionDivider tag="Trend" />
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-semibold text-text-primary">리뷰 트렌드</h2>
+                    <span className="text-sm text-text-tertiary">{timeSeries.length}개월</span>
+                  </div>
+                </div>
+                <div className="border border-border rounded-lg bg-surface px-5 py-4">
+                  <TimeSeriesChart data={timeSeries} />
+                </div>
+              </section>
+            )}
 
-        {/* 인사이트 */}
-        <div className="animate-fade-up" style={{ animationDelay: '80ms' }}>
-          <InsightCards insights={insights} />
+            <InsightCards insights={insights} />
+
+            {negativeData.length > 0 && (
+              <NegativeInsights data={negativeData} />
+            )}
+          </div>
+
+          {/* 오른쪽: 자사 카테고리 순위 (sticky) */}
+          {rankings.length > 0 && (
+            <div className="lg:sticky lg:top-20">
+              <RankingSection data={rankings} />
+            </div>
+          )}
         </div>
 
-        {/* 불만 포인트 */}
-        {negativeData.length > 0 && (
-          <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
-            <NegativeInsights data={negativeData} />
-          </div>
-        )}
-
-        {/* 카테고리 순위 (자사) */}
-        {rankings.length > 0 && (
-          <div className="animate-fade-up" style={{ animationDelay: '140ms' }}>
-            <RankingSection data={rankings} />
-          </div>
-        )}
-
-        {/* 시장 전체 순위 */}
+        {/* 시장 전체 순위 — full width */}
         {marketRankings.length > 0 && (
-          <div className="animate-fade-up" style={{ animationDelay: '160ms' }}>
+          <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
             <MarketRankingSection data={marketRankings} />
           </div>
         )}
