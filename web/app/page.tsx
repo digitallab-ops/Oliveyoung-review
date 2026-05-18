@@ -1,15 +1,7 @@
 import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankings, getMarketRankings } from '@/lib/db'
 import { generateMarketInsight } from '@/lib/ai'
 import KPIStrip from '@/components/KPIStrip'
-import InsightCards from '@/components/InsightCards'
-import StatsAccordion from '@/components/StatsAccordion'
-import TimeSeriesChart from '@/components/TimeSeriesChart'
-import NegativeInsights from '@/components/NegativeInsights'
-import ProductSummarySection from '@/components/ProductSummarySection'
-import InsightsHistory from '@/components/InsightsHistory'
-import RankingSection from '@/components/RankingSection'
-import MarketRankingSection from '@/components/MarketRankingSection'
-import SectionDivider from '@/components/SectionDivider'
+import DashboardTabs from '@/components/DashboardTabs'
 
 export const revalidate = 3600
 
@@ -87,68 +79,18 @@ export default async function Page() {
           <KPIStrip stats={stats} />
         </section>
 
-        {/* 2단 그리드: 왼쪽(트렌드+인사이트+불만) / 오른쪽(자사 순위) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-10 items-start animate-fade-up" style={{ animationDelay: '60ms' }}>
-          {/* 왼쪽 */}
-          <div className="space-y-10 min-w-0">
-            {timeSeries.length > 1 && (
-              <section>
-                <div className="mb-5">
-                  <SectionDivider tag="Trend" />
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-semibold text-text-primary">리뷰 트렌드</h2>
-                    <span className="text-sm text-text-tertiary">{timeSeries.length}개월</span>
-                  </div>
-                </div>
-                <div className="border border-border rounded-lg bg-surface px-5 py-4">
-                  <TimeSeriesChart data={timeSeries} />
-                </div>
-              </section>
-            )}
-
-            <InsightCards insights={insights} />
-
-            {negativeData.length > 0 && (
-              <NegativeInsights data={negativeData} />
-            )}
-          </div>
-
-          {/* 오른쪽: 자사 카테고리 순위 (sticky) */}
-          {rankings.length > 0 && (
-            <div className="lg:sticky lg:top-20">
-              <RankingSection data={rankings} />
-            </div>
-          )}
-        </div>
-
-        {/* 시장 전체 순위 — full width */}
-        {marketRankings.length > 0 && (
-          <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
-            <MarketRankingSection data={marketRankings} aiInsight={marketInsight} />
-          </div>
-        )}
-
-        {/* 구분선 */}
-        <div className="flex items-center gap-4">
-          <span className="h-px flex-1 bg-border-subtle" />
-          <span className="font-label text-[9px] tracking-[0.2em] uppercase text-text-tertiary/50">Data</span>
-          <span className="h-px flex-1 bg-border-subtle" />
-        </div>
-
-        {/* 상세 통계 */}
-        <div className="animate-fade-up" style={{ animationDelay: '160ms' }}>
-          <StatsAccordion scoreDist={scoreDist} productStats={productStats} />
-        </div>
-
-        {/* AI 상품 분석 */}
-        <div className="animate-fade-up" style={{ animationDelay: '200ms' }}>
-          <ProductSummarySection summaries={summaries} />
-        </div>
-
-        {/* 수집 이력 */}
-        <div className="animate-fade-up" style={{ animationDelay: '240ms' }}>
-          <InsightsHistory history={insightsHistory} />
-        </div>
+        <DashboardTabs
+          insights={insights}
+          timeSeries={timeSeries}
+          negativeData={negativeData}
+          scoreDist={scoreDist}
+          productStats={productStats}
+          summaries={summaries}
+          insightsHistory={insightsHistory}
+          rankings={rankings}
+          marketRankings={marketRankings}
+          aiInsight={marketInsight}
+        />
 
         {/* 푸터 */}
         <footer className="pt-4 pb-8 text-center space-y-1.5">
