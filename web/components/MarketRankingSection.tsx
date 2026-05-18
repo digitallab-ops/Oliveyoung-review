@@ -68,7 +68,7 @@ function RankEntry({ entry }: { entry: MarketRankingEntry }) {
     >
       <span
         className={`font-serif text-sm w-7 shrink-0 text-right leading-tight mt-0.5
-          ${isTop3 ? 'text-accent font-semibold' : 'text-text-tertiary font-normal'}`}
+          ${isTop3 ? 'text-accent font-semibold' : 'text-text-secondary font-normal'}`}
       >
         {entry.rank_position}
       </span>
@@ -106,14 +106,14 @@ function CategoryPanel({ cat }: { cat: MarketCategoryData }) {
 
   return (
     <div className="border border-border rounded-lg bg-surface p-4 space-y-4">
-      <p className="font-label text-[10px] tracking-[0.14em] uppercase text-accent/70">
+      <p className="text-sm font-semibold text-text-primary">
         {cat.category_name}
       </p>
 
       {(risers.length > 0 || newTop20.length > 0) && (
         <div className="space-y-1">
-          <p className="font-label text-[9px] tracking-[0.12em] uppercase text-text-tertiary/60 mb-1">
-            Risers
+          <p className="text-[11px] font-medium text-text-secondary mb-1">
+            급상승
           </p>
           {risers.map(entry => (
             <RankEntry key={`r-${entry.goods_no}`} entry={entry} />
@@ -133,7 +133,7 @@ function CategoryPanel({ cat }: { cat: MarketCategoryData }) {
       )}
 
       <div className="space-y-0.5">
-        <p className="font-label text-[9px] tracking-[0.12em] uppercase text-text-tertiary/60 mb-1">
+        <p className="text-[11px] font-medium text-text-secondary mb-1">
           Top {showAll ? cat.entries.length : Math.min(20, cat.entries.length)}
         </p>
         {displayEntries.map(entry => (
@@ -169,12 +169,12 @@ export default function MarketRankingSection({ data }: Props) {
 
       {/* 오늘의 시장 현황 배너 */}
       <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-3">
-        <p className="font-label text-[9px] tracking-[0.14em] uppercase text-accent/70 mb-2">
-          Today's Market Update
+        <p className="text-xs font-semibold text-accent mb-2">
+          오늘의 시장 현황
         </p>
         <ul className="space-y-1">
           {insights.map((msg, i) => (
-            <li key={i} className="text-xs text-accent-fg flex items-start gap-1.5">
+            <li key={i} className="text-sm text-accent-fg flex items-start gap-1.5">
               <span className="text-accent shrink-0 mt-0.5">·</span>
               <span>{msg}</span>
             </li>
