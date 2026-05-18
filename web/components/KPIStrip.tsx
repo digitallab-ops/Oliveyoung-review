@@ -59,14 +59,14 @@ export default function KPIStrip({ stats }: KPIStripProps) {
             </div>
           </div>
 
-          <p className="text-xs text-text-tertiary mb-3">{item.label}</p>
+          <p className="text-xs text-text-secondary mb-3">{item.label}</p>
           <p
-            className="font-serif text-[2rem] md:text-[2.4rem] font-normal leading-none mb-2"
+            className="text-[2rem] md:text-[2.4rem] font-bold leading-none mb-2"
             style={{ color: item.color }}
           >
             {item.value}
           </p>
-          <p className="text-xs text-text-tertiary/60">{item.sub}</p>
+          <p className="text-xs text-text-secondary/70">{item.sub}</p>
         </div>
       ))}
     </div>
