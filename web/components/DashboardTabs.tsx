@@ -28,6 +28,7 @@ interface Props {
   marketRankings: MarketCategoryData[]
   aiInsight: string
   reviewInsight: string
+  dailyBrief: string
 }
 
 const TABS = [
@@ -41,7 +42,7 @@ type TabId = typeof TABS[number]['id']
 
 export default function DashboardTabs({
   insights, timeSeries, negativeData, scoreDist, productStats,
-  summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight
+  summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight, dailyBrief
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
 
@@ -71,20 +72,20 @@ export default function DashboardTabs({
         {/* 오늘 현황 */}
         {active === 'today' && (
           <div className="space-y-10">
-            {/* AI 시장 인사이트 배너 */}
-            {aiInsight && (
+            {/* 오늘의 통합 브리핑 */}
+            {dailyBrief && (
               <div>
-                <SectionDivider tag="AI Insight" />
-                <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-3.5">
-                  <p className="text-xs font-semibold text-accent mb-2.5">오늘의 시장 현황</p>
-                  <ul className="space-y-1.5">
-                    {aiInsight
+                <SectionDivider tag="Today's Brief" />
+                <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-4">
+                  <p className="text-xs font-semibold text-accent mb-3">오늘의 핵심 브리핑 — 랭킹 + 리뷰 종합</p>
+                  <ul className="space-y-2">
+                    {dailyBrief
                       .split('\n')
-                      .map(l => l.replace(/^[\s\-·•*\d.]+/, '').trim())
+                      .map(l => l.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/^[\s\-·•*\d.]+/, '').trim())
                       .filter(l => l.length > 4)
                       .map((msg, i) => (
-                        <li key={i} className="text-sm text-accent-fg flex items-start gap-1.5">
-                          <span className="text-accent shrink-0 mt-0.5 font-bold">·</span>
+                        <li key={i} className="text-sm text-accent-fg flex items-start gap-2">
+                          <span className="text-accent shrink-0 mt-0.5 font-bold text-base leading-none">·</span>
                           <span className="leading-snug">{msg}</span>
                         </li>
                       ))}
@@ -98,7 +99,7 @@ export default function DashboardTabs({
               <RankingSection data={rankings} />
             )}
 
-            {rankings.length === 0 && !aiInsight && (
+            {rankings.length === 0 && !dailyBrief && (
               <div className="border border-dashed border-border rounded-lg px-6 py-12 text-center">
                 <p className="text-sm text-text-secondary">오늘 수집 데이터가 없어요</p>
                 <p className="text-xs text-text-tertiary mt-1">매일 오전 6시 자동 수집됩니다</p>
@@ -117,8 +118,8 @@ export default function DashboardTabs({
                 <ul className="space-y-1.5">
                   {reviewInsight
                     .split('\n')
-                    .map(l => l.replace(/^[\s\-·•*\d.]+/, '').trim())
-                    .filter(l => l.length > 4)
+                    .map(l => l.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/^[\s\-·•*\d.]+/, '').trim())
+                    .filter(l => l.length > 4 && !/^#+/.test(l))
                     .map((msg, i) => (
                       <li key={i} className="text-sm text-accent-fg flex items-start gap-1.5">
                         <span className="text-accent shrink-0 mt-0.5 font-bold">·</span>

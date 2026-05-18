@@ -1,5 +1,5 @@
 import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankings, getMarketRankings } from '@/lib/db'
-import { generateMarketInsight, generateReviewInsight } from '@/lib/ai'
+import { generateMarketInsight, generateReviewInsight, generateDailyBrief } from '@/lib/ai'
 import KPIStrip from '@/components/KPIStrip'
 import DashboardTabs from '@/components/DashboardTabs'
 
@@ -25,9 +25,10 @@ export default async function Page() {
     getMarketRankings(),
   ])
 
-  const [marketInsight, reviewInsight] = await Promise.all([
+  const [marketInsight, reviewInsight, dailyBrief] = await Promise.all([
     marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''),
     generateReviewInsight(insights, negativeData),
+    marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''),
   ])
 
   return (
@@ -92,6 +93,7 @@ export default async function Page() {
           marketRankings={marketRankings}
           aiInsight={marketInsight}
           reviewInsight={reviewInsight}
+          dailyBrief={dailyBrief}
         />
 
         {/* 푸터 */}
