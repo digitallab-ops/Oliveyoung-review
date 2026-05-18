@@ -104,6 +104,20 @@ export interface ProductRankingData {
   history: { date: string; rank: number }[]
 }
 
+export interface MarketRankingEntry {
+  rank_position: number
+  goods_no: string
+  goods_name: string
+  prev_rank: number | null
+  delta: number | null
+  is_ours: boolean
+}
+
+export interface MarketCategoryData {
+  category_name: string
+  entries: MarketRankingEntry[]
+}
+
 export interface InsightsSnapshot {
   id: number
   snapshot_at: string

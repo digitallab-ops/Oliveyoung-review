@@ -37,8 +37,8 @@ CATEGORIES = [
 ROWS_PER_PAGE = 100
 
 
-def fetch_ranking(disp_cat: str, flt_cat: str) -> list[str]:
-    """카테고리 베스트 페이지에서 goodsNo 순위 리스트 반환"""
+def fetch_ranking(disp_cat: str, flt_cat: str) -> list[dict]:
+    """카테고리 베스트 페이지에서 {goods_no, name} 순위 리스트 반환"""
     kwargs = dict(
         params={'dispCatNo': disp_cat, 'fltDispCatNo': flt_cat, 'pageIdx': 1, 'rowsPerPage': ROWS_PER_PAGE},
         headers=HEADERS,
@@ -61,8 +61,11 @@ def fetch_ranking(disp_cat: str, flt_cat: str) -> list[str]:
         m = re.search(r'goodsNo=([A-Z0-9]+)', link.get('href', ''))
         if not m or m.group(1) in seen:
             continue
-        seen.add(m.group(1))
-        results.append(m.group(1))
+        goods_no = m.group(1)
+        seen.add(goods_no)
+        name_el = item.select_one('.tx_name, .prd_name, strong.tx_name, .name')
+        name = name_el.get_text(strip=True) if name_el else ''
+        results.append({'goods_no': goods_no, 'name': name})
     return results
 
 
@@ -87,29 +90,40 @@ def run():
             print(f"[{cat_name}] 수집 중...")
             try:
                 ranking = fetch_ranking(disp, flt)
-                hits = [(i + 1, g) for i, g in enumerate(ranking) if g in our_goods]
 
+                with conn.cursor() as cur:
+                    # market_rankings: 전체 100개 저장
+                    for rank, item in enumerate(ranking, 1):
+                        cur.execute("""
+                            INSERT INTO market_rankings (rank_date, category_name, rank_position, goods_no, goods_name)
+                            VALUES (CURRENT_DATE, %s, %s, %s, %s)
+                            ON CONFLICT (rank_date, category_name, rank_position)
+                            DO UPDATE SET goods_no = EXCLUDED.goods_no, goods_name = EXCLUDED.goods_name
+                        """, (cat_name, rank, item['goods_no'], item['name']))
+
+                    # product_rankings: 자사 상품만
+                    hits = [(i + 1, item) for i, item in enumerate(ranking) if item['goods_no'] in our_goods]
+                    for rank, item in hits:
+                        cur.execute("""
+                            INSERT INTO product_rankings (rank_date, goods_no, category_name, rank_position)
+                            VALUES (CURRENT_DATE, %s, %s, %s)
+                            ON CONFLICT (rank_date, goods_no, category_name)
+                            DO UPDATE SET rank_position = EXCLUDED.rank_position
+                        """, (item['goods_no'], cat_name, rank))
+
+                total_saved += len(ranking)
+                print(f"  전체 {len(ranking)}개 저장", end='')
                 if hits:
-                    with conn.cursor() as cur:
-                        for rank, goods_no in hits:
-                            cur.execute("""
-                                INSERT INTO product_rankings (rank_date, goods_no, category_name, rank_position)
-                                VALUES (CURRENT_DATE, %s, %s, %s)
-                                ON CONFLICT (rank_date, goods_no, category_name)
-                                DO UPDATE SET rank_position = EXCLUDED.rank_position
-                            """, (goods_no, cat_name, rank))
-                    total_saved += len(hits)
-                    for rank, g in hits:
-                        print(f"  {rank}위: {g}")
+                    print(f"  |  자사: " + ", ".join(f"{r}위 {it['goods_no']}" for r, it in hits))
                 else:
-                    print(f"  Top {ROWS_PER_PAGE} 없음")
+                    print(f"  (자사 Top {ROWS_PER_PAGE} 없음)")
 
             except Exception as e:
                 print(f"  오류: {e}")
 
             time.sleep(3)
 
-        print(f"\n=== 완료 - {total_saved}개 순위 저장 ===")
+        print(f"\n=== 완료 - {total_saved}개 시장 순위 저장 ===")
 
     finally:
         conn.close()

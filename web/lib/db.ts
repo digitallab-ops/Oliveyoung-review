@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -404,6 +404,58 @@ export async function getProductRankings(): Promise<ProductRankingData[]> {
       })
     }
     return Array.from(map.values())
+  } catch {
+    return []
+  }
+}
+
+export async function getMarketRankings(): Promise<MarketCategoryData[]> {
+  try {
+    const rows = await query<{
+      category_name: string
+      rank_position: string
+      goods_no: string
+      goods_name: string
+      prev_rank: string | null
+      delta: string | null
+      is_ours: boolean
+    }>(`
+      WITH today AS (
+        SELECT * FROM market_rankings WHERE rank_date = CURRENT_DATE
+      ),
+      yesterday AS (
+        SELECT * FROM market_rankings
+        WHERE rank_date = (
+          SELECT MAX(rank_date) FROM market_rankings WHERE rank_date < CURRENT_DATE
+        )
+      )
+      SELECT
+        t.category_name,
+        t.rank_position,
+        t.goods_no,
+        t.goods_name,
+        y.rank_position                           AS prev_rank,
+        y.rank_position - t.rank_position         AS delta,
+        EXISTS(SELECT 1 FROM products p WHERE p.goods_no = t.goods_no) AS is_ours
+      FROM today t
+      LEFT JOIN yesterday y
+        ON t.goods_no = y.goods_no AND t.category_name = y.category_name
+      ORDER BY t.category_name, t.rank_position
+    `)
+
+    const map = new Map<string, MarketRankingEntry[]>()
+    for (const r of rows) {
+      if (!map.has(r.category_name)) map.set(r.category_name, [])
+      map.get(r.category_name)!.push({
+        rank_position: Number(r.rank_position),
+        goods_no:      r.goods_no,
+        goods_name:    r.goods_name,
+        prev_rank:     r.prev_rank != null ? Number(r.prev_rank) : null,
+        delta:         r.delta != null ? Number(r.delta) : null,
+        is_ours:       Boolean(r.is_ours),
+      })
+    }
+    return Array.from(map.entries()).map(([category_name, entries]) => ({ category_name, entries }))
   } catch {
     return []
   }

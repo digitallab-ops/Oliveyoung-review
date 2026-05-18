@@ -1,4 +1,4 @@
-import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankings } from '@/lib/db'
+import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankings, getMarketRankings } from '@/lib/db'
 import KPIStrip from '@/components/KPIStrip'
 import InsightCards from '@/components/InsightCards'
 import StatsAccordion from '@/components/StatsAccordion'
@@ -7,6 +7,7 @@ import NegativeInsights from '@/components/NegativeInsights'
 import ProductSummarySection from '@/components/ProductSummarySection'
 import InsightsHistory from '@/components/InsightsHistory'
 import RankingSection from '@/components/RankingSection'
+import MarketRankingSection from '@/components/MarketRankingSection'
 import SectionDivider from '@/components/SectionDivider'
 
 export const revalidate = 3600
@@ -18,7 +19,7 @@ function formatLastUpdated(ts: string | null): string {
 }
 
 export default async function Page() {
-  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, insightsHistory, rankings] = await Promise.all([
+  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, insightsHistory, rankings, marketRankings] = await Promise.all([
     getStats(),
     getInsights(),
     getScoreDist(),
@@ -28,6 +29,7 @@ export default async function Page() {
     getProductSummaries(),
     getInsightsHistory(),
     getProductRankings(),
+    getMarketRankings(),
   ])
 
   return (
@@ -108,10 +110,17 @@ export default async function Page() {
           </div>
         )}
 
-        {/* 카테고리 순위 */}
+        {/* 카테고리 순위 (자사) */}
         {rankings.length > 0 && (
           <div className="animate-fade-up" style={{ animationDelay: '140ms' }}>
             <RankingSection data={rankings} />
+          </div>
+        )}
+
+        {/* 시장 전체 순위 */}
+        {marketRankings.length > 0 && (
+          <div className="animate-fade-up" style={{ animationDelay: '160ms' }}>
+            <MarketRankingSection data={marketRankings} />
           </div>
         )}
 
