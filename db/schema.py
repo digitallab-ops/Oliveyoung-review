@@ -142,13 +142,14 @@ def init_db(conn=None):
                 CREATE TABLE IF NOT EXISTS market_insights (
                     id           SERIAL PRIMARY KEY,
                     insight_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    slot         TEXT NOT NULL DEFAULT 'am',
                     insight_text TEXT NOT NULL,
                     generated_at TIMESTAMP DEFAULT NOW()
                 )
             """)
             cur.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_market_insights_date
-                    ON market_insights(insight_date)
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_market_insights_date_slot
+                    ON market_insights(insight_date, slot)
             """)
 
     if conn is not None:
