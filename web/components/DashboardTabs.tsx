@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type {
   Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, InsightsSnapshot, ProductRankingData,
-  MarketCategoryData
+  MarketCategoryData, NewProductData, NegativeAlertData
 } from '@/lib/types'
 import InsightCards from '@/components/InsightCards'
 import NegativeInsights from '@/components/NegativeInsights'
@@ -14,6 +14,7 @@ import ProductSummarySection from '@/components/ProductSummarySection'
 import InsightsHistory from '@/components/InsightsHistory'
 import RankingSection from '@/components/RankingSection'
 import MarketRankingSection from '@/components/MarketRankingSection'
+import NewProductInsights from '@/components/NewProductInsights'
 import SectionDivider from '@/components/SectionDivider'
 
 interface Props {
@@ -29,6 +30,8 @@ interface Props {
   aiInsight: string
   reviewInsight: string
   dailyBrief: string
+  newProducts: NewProductData[]
+  negativeAlerts: NegativeAlertData[]
 }
 
 const TABS = [
@@ -42,7 +45,8 @@ type TabId = typeof TABS[number]['id']
 
 export default function DashboardTabs({
   insights, timeSeries, negativeData, scoreDist, productStats,
-  summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight, dailyBrief
+  summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight, dailyBrief,
+  newProducts, negativeAlerts
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
 
@@ -111,6 +115,34 @@ export default function DashboardTabs({
         {/* 리뷰 분석 */}
         {active === 'reviews' && (
           <div className="space-y-10">
+            {/* 신제품 리뷰 현황 */}
+            <NewProductInsights products={newProducts} />
+
+            {/* 부정 이슈 급증 알림 */}
+            {negativeAlerts.length > 0 && (
+              <div>
+                <SectionDivider tag="Alert" />
+                <div className="space-y-2">
+                  {negativeAlerts.map(a => (
+                    <div key={a.goods_no} className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                      <span className="text-red-500 font-bold text-base shrink-0 mt-0.5">!</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-red-700">{a.goods_name}</p>
+                        <p className="text-xs text-red-600 mt-0.5">
+                          최근 7일 부정 리뷰 {a.recent_neg}건
+                          {a.prev_neg > 0 && ` (전주 대비 +${a.increase_pct}%)`}
+                          {a.top_keywords.length > 0 && ` · ${a.top_keywords.map(k => k.word).join(', ')}`}
+                        </p>
+                        {a.sample && (
+                          <p className="text-xs text-red-500/80 mt-1 truncate">"{a.sample}"</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* AI 리뷰 인사이트 배너 */}
             {reviewInsight && (
               <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-3.5">

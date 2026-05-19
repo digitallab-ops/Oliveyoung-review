@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import re
-from datetime import date
+from datetime import date, datetime
 
 try:
     from curl_cffi import requests as cf_requests
@@ -75,7 +75,8 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
 
 
 def run():
-    print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()}) ===\n")
+    rank_hour = (datetime.now().hour // 3) * 3  # 0,3,6,9,12,15,18,21
+    print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()} {rank_hour:02d}시) ===\n")
 
     conn = get_conn()
     conn.autocommit = True
@@ -100,11 +101,11 @@ def run():
                     # market_rankings: 전체 100개 저장
                     for rank, item in enumerate(ranking, 1):
                         cur.execute("""
-                            INSERT INTO market_rankings (rank_date, category_name, rank_position, goods_no, goods_name)
-                            VALUES (CURRENT_DATE, %s, %s, %s, %s)
-                            ON CONFLICT (rank_date, category_name, rank_position)
+                            INSERT INTO market_rankings (rank_date, rank_hour, category_name, rank_position, goods_no, goods_name)
+                            VALUES (CURRENT_DATE, %s, %s, %s, %s, %s)
+                            ON CONFLICT (rank_date, rank_hour, category_name, rank_position)
                             DO UPDATE SET goods_no = EXCLUDED.goods_no, goods_name = EXCLUDED.goods_name
-                        """, (cat_name, rank, item['goods_no'], item['name']))
+                        """, (rank_hour, cat_name, rank, item['goods_no'], item['name']))
 
                     # product_rankings: 자사 상품만
                     hits = [(i + 1, item) for i, item in enumerate(ranking) if item['goods_no'] in our_goods]

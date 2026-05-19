@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData } from './types'
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -420,14 +420,21 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
       delta: string | null
       is_ours: boolean
     }>(`
-      WITH today AS (
-        SELECT * FROM market_rankings WHERE rank_date = CURRENT_DATE
+      WITH today_best AS (
+        SELECT category_name, goods_no, goods_name,
+               MIN(rank_position) AS rank_position
+        FROM market_rankings
+        WHERE rank_date = CURRENT_DATE
+        GROUP BY category_name, goods_no, goods_name
       ),
-      yesterday AS (
-        SELECT * FROM market_rankings
+      yesterday_best AS (
+        SELECT category_name, goods_no,
+               MIN(rank_position) AS rank_position
+        FROM market_rankings
         WHERE rank_date = (
           SELECT MAX(rank_date) FROM market_rankings WHERE rank_date < CURRENT_DATE
         )
+        GROUP BY category_name, goods_no
       )
       SELECT
         t.category_name,
@@ -437,8 +444,8 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
         y.rank_position                           AS prev_rank,
         y.rank_position - t.rank_position         AS delta,
         EXISTS(SELECT 1 FROM products p WHERE p.goods_no = t.goods_no) AS is_ours
-      FROM today t
-      LEFT JOIN yesterday y
+      FROM today_best t
+      LEFT JOIN yesterday_best y
         ON t.goods_no = y.goods_no AND t.category_name = y.category_name
       ORDER BY
         CASE t.category_name
@@ -500,6 +507,158 @@ export async function getInsightsHistory(limit = 60): Promise<InsightsSnapshot[]
         ? JSON.parse(r.positive_keywords) : (r.positive_keywords as { word: string; cnt: number }[]),
       negative_keywords: typeof r.negative_keywords === 'string'
         ? JSON.parse(r.negative_keywords) : (r.negative_keywords as { word: string; cnt: number }[]),
+    }))
+  } catch {
+    return []
+  }
+}
+
+export async function getNewProducts(withinDays = 30): Promise<NewProductData[]> {
+  try {
+    const newProds = await query<{ goods_no: string; goods_name: string; first_seen: string }>(`
+      SELECT goods_no, goods_name, first_seen::text
+      FROM products
+      WHERE first_seen >= CURRENT_DATE - $1::int
+      ORDER BY first_seen DESC
+    `, [withinDays])
+
+    if (newProds.length === 0) return []
+
+    const goodsNos = newProds.map(p => p.goods_no)
+
+    const reviewStats = await query<{
+      goods_no: string; total: string; pos: string; neg: string; daily_avg: string
+    }>(`
+      SELECT
+        r.goods_no,
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE r.score >= 4) AS pos,
+        COUNT(*) FILTER (WHERE r.score <= 2) AS neg,
+        ROUND(COUNT(*)::numeric / GREATEST(1, CURRENT_DATE - p.first_seen), 1) AS daily_avg
+      FROM reviews r
+      JOIN products p ON r.goods_no = p.goods_no
+      WHERE r.goods_no = ANY($1)
+      GROUP BY r.goods_no
+    `, [goodsNos])
+
+    const kwRows = await query<{ goods_no: string; word: string; cnt: string }>(`
+      SELECT goods_no, word, COUNT(*) AS cnt FROM (
+        SELECT r.goods_no, UNNEST(REGEXP_MATCHES(r.content, '[가-힣]{2,6}', 'g')) AS word
+        FROM reviews r
+        WHERE r.goods_no = ANY($1) AND r.content IS NOT NULL AND r.content != ''
+      ) t
+      WHERE word NOT IN (${STOPWORDS})
+      AND ${SUFFIX_FILTER}
+      AND LENGTH(word) >= 2
+      GROUP BY goods_no, word
+      ORDER BY goods_no, cnt DESC
+    `, [goodsNos])
+
+    const statsMap = new Map(reviewStats.map(r => [r.goods_no, r]))
+    const kwMap = new Map<string, { word: string; cnt: number }[]>()
+    for (const k of kwRows) {
+      if (!kwMap.has(k.goods_no)) kwMap.set(k.goods_no, [])
+      if ((kwMap.get(k.goods_no)!.length) < 5) {
+        kwMap.get(k.goods_no)!.push({ word: k.word, cnt: Number(k.cnt) })
+      }
+    }
+
+    return newProds.map(p => {
+      const s = statsMap.get(p.goods_no)
+      const total = Number(s?.total ?? 0)
+      const pos = Number(s?.pos ?? 0)
+      const neg = Number(s?.neg ?? 0)
+      const firstSeen = new Date(p.first_seen)
+      const daysLaunched = Math.max(1, Math.floor((Date.now() - firstSeen.getTime()) / 86400000))
+      return {
+        goods_no: p.goods_no,
+        goods_name: p.goods_name,
+        first_seen: p.first_seen,
+        days_since_launch: daysLaunched,
+        total_reviews: total,
+        daily_avg: Number(s?.daily_avg ?? 0),
+        pos_pct: total > 0 ? Math.round(pos / total * 100) : 0,
+        neg_pct: total > 0 ? Math.round(neg / total * 100) : 0,
+        top_keywords: kwMap.get(p.goods_no) ?? [],
+      }
+    }).filter(p => p.total_reviews > 0)
+  } catch {
+    return []
+  }
+}
+
+export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
+  try {
+    const rows = await query<{
+      goods_no: string; goods_name: string
+      recent_neg: string; prev_neg: string
+    }>(`
+      SELECT
+        p.goods_no, p.goods_name,
+        COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')) AS recent_neg,
+        COUNT(*) FILTER (WHERE r.score <= 2
+          AND r.created_at >= to_char(CURRENT_DATE - 14, 'YYYY-MM-DD')
+          AND r.created_at <  to_char(CURRENT_DATE - 7,  'YYYY-MM-DD')) AS prev_neg
+      FROM reviews r
+      JOIN products p ON r.goods_no = p.goods_no
+      WHERE r.content IS NOT NULL
+      GROUP BY p.goods_no, p.goods_name
+      HAVING COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')) >= 3
+    `)
+
+    const alerts = rows
+      .map(r => ({
+        goods_no: r.goods_no,
+        goods_name: r.goods_name,
+        recent_neg: Number(r.recent_neg),
+        prev_neg: Number(r.prev_neg),
+        increase_pct: Number(r.prev_neg) > 0
+          ? Math.round((Number(r.recent_neg) - Number(r.prev_neg)) / Number(r.prev_neg) * 100)
+          : 100,
+      }))
+      .filter(r => r.increase_pct >= 50)
+      .sort((a, b) => b.increase_pct - a.increase_pct)
+      .slice(0, 5)
+
+    if (alerts.length === 0) return []
+
+    const goodsNos = alerts.map(a => a.goods_no)
+
+    const kwRows = await query<{ goods_no: string; word: string; cnt: string }>(`
+      SELECT goods_no, word, COUNT(*) AS cnt FROM (
+        SELECT r.goods_no, UNNEST(REGEXP_MATCHES(r.content, '[가-힣]{2,6}', 'g')) AS word
+        FROM reviews r
+        WHERE r.goods_no = ANY($1) AND r.score <= 2
+          AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')
+          AND r.content IS NOT NULL
+      ) t
+      WHERE word NOT IN (${STOPWORDS}) AND ${SUFFIX_FILTER} AND LENGTH(word) >= 2
+      GROUP BY goods_no, word ORDER BY goods_no, cnt DESC
+    `, [goodsNos])
+
+    const sampleRows = await query<{ goods_no: string; content: string }>(`
+      SELECT DISTINCT ON (goods_no) goods_no,
+        regexp_replace(content, '<[^>]+>', '', 'g') AS content
+      FROM reviews
+      WHERE goods_no = ANY($1) AND score <= 2
+        AND created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')
+        AND content IS NOT NULL AND content != ''
+      ORDER BY goods_no, created_at DESC
+    `, [goodsNos])
+
+    const kwMap = new Map<string, { word: string; cnt: number }[]>()
+    for (const k of kwRows) {
+      if (!kwMap.has(k.goods_no)) kwMap.set(k.goods_no, [])
+      if (kwMap.get(k.goods_no)!.length < 4) {
+        kwMap.get(k.goods_no)!.push({ word: k.word, cnt: Number(k.cnt) })
+      }
+    }
+    const sampleMap = new Map(sampleRows.map(s => [s.goods_no, s.content.slice(0, 80)]))
+
+    return alerts.map(a => ({
+      ...a,
+      top_keywords: kwMap.get(a.goods_no) ?? [],
+      sample: sampleMap.get(a.goods_no) ?? '',
     }))
   } catch {
     return []

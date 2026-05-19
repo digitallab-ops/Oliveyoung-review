@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getInsights } from '@/lib/db'
 
-export const revalidate = 3600
+export const revalidate = 300
 
 export async function GET(req: NextRequest) {
   const goodsNo = req.nextUrl.searchParams.get('goodsNo') || undefined

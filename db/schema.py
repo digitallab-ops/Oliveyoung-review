@@ -120,6 +120,7 @@ def init_db(conn=None):
                 CREATE TABLE IF NOT EXISTS market_rankings (
                     id            SERIAL PRIMARY KEY,
                     rank_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+                    rank_hour     SMALLINT NOT NULL DEFAULT 6,
                     category_name TEXT NOT NULL,
                     rank_position INTEGER NOT NULL,
                     goods_no      TEXT NOT NULL,
@@ -127,8 +128,14 @@ def init_db(conn=None):
                 )
             """)
             cur.execute("""
+                ALTER TABLE market_rankings ADD COLUMN IF NOT EXISTS rank_hour SMALLINT NOT NULL DEFAULT 6
+            """)
+            cur.execute("""
+                DROP INDEX IF EXISTS idx_market_rankings_unique
+            """)
+            cur.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_market_rankings_unique
-                    ON market_rankings(rank_date, category_name, rank_position)
+                    ON market_rankings(rank_date, rank_hour, category_name, rank_position)
             """)
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_market_rankings_date

@@ -118,6 +118,28 @@ export interface MarketCategoryData {
   entries: MarketRankingEntry[]
 }
 
+export interface NewProductData {
+  goods_no: string
+  goods_name: string
+  first_seen: string
+  days_since_launch: number
+  total_reviews: number
+  daily_avg: number
+  pos_pct: number
+  neg_pct: number
+  top_keywords: KeywordItem[]
+}
+
+export interface NegativeAlertData {
+  goods_no: string
+  goods_name: string
+  recent_neg: number
+  prev_neg: number
+  increase_pct: number
+  top_keywords: KeywordItem[]
+  sample: string
+}
+
 export interface InsightsSnapshot {
   id: number
   snapshot_at: string
