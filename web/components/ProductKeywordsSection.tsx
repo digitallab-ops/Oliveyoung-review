@@ -19,7 +19,7 @@ export default function ProductKeywordsSection({ keywords, topics }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
         {keywords.map(prod => {
           const topic = topicMap.get(prod.goods_no)
           return (
@@ -38,7 +38,7 @@ export default function ProductKeywordsSection({ keywords, topics }: Props) {
               {prod.pos_keywords.length > 0 && (
                 <div>
                   <p className="text-2xs font-medium text-emerald-600 mb-1.5">긍정</p>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1 min-h-[44px]">
                     {prod.pos_keywords.map(kw => (
                       <span
                         key={kw.word}
@@ -57,7 +57,7 @@ export default function ProductKeywordsSection({ keywords, topics }: Props) {
               {prod.neg_keywords.length > 0 && (
                 <div>
                   <p className="text-2xs font-medium text-red-500 mb-1.5">부정</p>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1 min-h-[44px]">
                     {prod.neg_keywords.map(kw => (
                       <span
                         key={kw.word}
