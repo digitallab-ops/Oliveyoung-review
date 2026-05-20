@@ -144,7 +144,7 @@ export default function InsightsHistory({ history }: Props) {
   return (
     <div className="space-y-4">
       <div>
-        <SectionDivider tag="History" />
+        <SectionDivider tag="수집 이력" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">수집 이력</h2>
           {history.length > 0 && (

@@ -10,7 +10,7 @@ export default function NewProductInsights({ products }: Props) {
 
   return (
     <section>
-      <SectionDivider tag="New Products" />
+      <SectionDivider tag="신제품 현황" />
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-xl font-semibold text-text-primary">신제품 리뷰 현황</h2>
         <span className="text-sm text-text-tertiary">최근 30일 출시</span>

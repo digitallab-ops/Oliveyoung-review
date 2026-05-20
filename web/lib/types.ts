@@ -166,6 +166,7 @@ export interface OurRankingTimelineEntry {
 export interface PromoStatusData {
   promo_type: string
   our_items: { goods_no: string; goods_name: string; rank_position: number | null }[]
+  top_items: { rank_position: number; goods_no: string; goods_name: string; is_ours: boolean }[]
   total_count: number
 }
 

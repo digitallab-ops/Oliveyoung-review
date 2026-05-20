@@ -91,7 +91,7 @@ export default function ProductSummarySection({ summaries }: Props) {
   return (
     <div className="space-y-4">
       <div className="mb-5">
-        <SectionDivider tag="AI Analysis" />
+        <SectionDivider tag="AI 제품 요약" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">AI 상품 분석</h2>
           {summaries.length > 0 && (

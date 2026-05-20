@@ -125,7 +125,7 @@ export default function RankingSection({ data }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <SectionDivider tag="Market Ranking" />
+        <SectionDivider tag="자사 순위" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">올리브영 카테고리 순위</h2>
           <span className="text-sm text-text-tertiary">Top 100 기준</span>

@@ -8,7 +8,14 @@ export const revalidate = 300
 function formatLastUpdated(ts: string | null): string {
   if (!ts) return '-'
   const d = new Date(ts)
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const now = Date.now()
+  const diffMs = now - d.getTime()
+  const diffH = Math.floor(diffMs / 3600000)
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (diffMs < 3600000) return '방금 전'
+  if (diffH < 24) return `${diffH}시간 전 (${hhmm})`
+  if (diffH < 48) return `어제 ${hhmm}`
+  return `${Math.floor(diffH / 24)}일 전 (${hhmm})`
 }
 
 export default async function Page() {

@@ -12,7 +12,7 @@ export default function ProductKeywordsSection({ keywords, topics }: Props) {
   return (
     <section>
       <div className="mb-5">
-        <SectionDivider tag="Keywords" />
+        <SectionDivider tag="키워드 분석" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">제품별 키워드 분석</h2>
           <span className="text-sm text-text-tertiary">리뷰 상위 {keywords.length}개 제품</span>

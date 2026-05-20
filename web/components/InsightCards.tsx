@@ -75,7 +75,7 @@ export default function InsightCards({ insights, onKeywordClick, activeKeywords 
   return (
     <section className="space-y-3">
       <div className="mb-5">
-        <SectionDivider tag="Insights" />
+        <SectionDivider tag="인사이트" />
         <h2 className="text-xl font-semibold text-text-primary">소비자가 말하는 것들</h2>
       </div>
 

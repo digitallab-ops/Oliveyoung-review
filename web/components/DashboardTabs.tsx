@@ -61,7 +61,7 @@ export default function DashboardTabs({
   return (
     <div className="space-y-8">
       {/* 탭 바 */}
-      <div className="border-b border-border">
+      <div className="border-b border-border sticky top-14 z-30 bg-background/95 backdrop-blur-sm">
         <nav className="flex gap-0 -mb-px">
           {TABS.map(tab => (
             <button
@@ -87,7 +87,7 @@ export default function DashboardTabs({
             {/* 오늘의 통합 브리핑 */}
             {dailyBrief && (
               <div>
-                <SectionDivider tag="Today's Brief" />
+                <SectionDivider tag="오늘 브리핑" />
                 <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-4">
                   <p className="text-xs font-semibold text-accent mb-3">오늘의 핵심 브리핑 — 랭킹 + 리뷰 종합</p>
                   <ul className="space-y-2">
@@ -139,7 +139,7 @@ export default function DashboardTabs({
             {/* 부정 이슈 급증 알림 */}
             {negativeAlerts.length > 0 && (
               <div>
-                <SectionDivider tag="Alert" />
+                <SectionDivider tag="알림" />
                 <div className="space-y-2">
                   {negativeAlerts.map(a => (
                     <div key={a.goods_no} className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
@@ -183,7 +183,7 @@ export default function DashboardTabs({
             {timeSeries.length > 1 && (
               <section>
                 <div className="mb-5">
-                  <SectionDivider tag="Trend" />
+                  <SectionDivider tag="트렌드" />
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-semibold text-text-primary">리뷰 트렌드</h2>
                     <span className="text-sm text-text-tertiary">{timeSeries.length}개월</span>

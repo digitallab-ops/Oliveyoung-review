@@ -48,7 +48,7 @@ export default function TodayRankingTimeline({ data }: Props) {
 
   return (
     <section>
-      <SectionDivider tag="Today's Timeline" />
+      <SectionDivider tag="오늘 순위 타임라인" />
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-xl font-semibold text-text-primary">오늘 시간별 순위 추이</h2>
         <span className="text-sm text-text-tertiary">3시간 간격</span>

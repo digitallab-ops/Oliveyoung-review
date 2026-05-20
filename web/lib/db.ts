@@ -426,20 +426,25 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
       delta: string | null
       is_ours: boolean
     }>(`
-      WITH today_best AS (
+      WITH latest_date AS (
+        SELECT MAX(rank_date) AS d FROM market_rankings
+      ),
+      prev_date AS (
+        SELECT MAX(rank_date) AS d FROM market_rankings
+        WHERE rank_date < (SELECT d FROM latest_date)
+      ),
+      today_best AS (
         SELECT category_name, goods_no, goods_name,
                MIN(rank_position) AS rank_position
         FROM market_rankings
-        WHERE rank_date = CURRENT_DATE
+        WHERE rank_date = (SELECT d FROM latest_date)
         GROUP BY category_name, goods_no, goods_name
       ),
       yesterday_best AS (
         SELECT category_name, goods_no,
                MIN(rank_position) AS rank_position
         FROM market_rankings
-        WHERE rank_date = (
-          SELECT MAX(rank_date) FROM market_rankings WHERE rank_date < CURRENT_DATE
-        )
+        WHERE rank_date = (SELECT d FROM prev_date)
         GROUP BY category_name, goods_no
       )
       SELECT
@@ -614,6 +619,12 @@ export async function getOurRankingTimeline(): Promise<OurRankingTimelineEntry[]
 
 export async function getPromoStatus(): Promise<PromoStatusData[]> {
   try {
+    const latestDate = await query<{ d: string }>(`
+      SELECT MAX(collected_at)::text AS d FROM promo_items
+    `)
+    const dateStr = latestDate[0]?.d
+    if (!dateStr) return []
+
     const rows = await query<{
       promo_type: string
       goods_no: string
@@ -623,19 +634,31 @@ export async function getPromoStatus(): Promise<PromoStatusData[]> {
     }>(`
       SELECT promo_type, goods_no, goods_name, rank_position, is_ours
       FROM promo_items
-      WHERE collected_at = CURRENT_DATE
+      WHERE collected_at = $1
       ORDER BY promo_type, rank_position NULLS LAST
-    `)
+    `, [dateStr])
 
-    const typeMap = new Map<string, { our_items: PromoStatusData['our_items']; total_count: number }>()
+    const typeMap = new Map<string, {
+      our_items: PromoStatusData['our_items']
+      top_items: PromoStatusData['top_items']
+      total_count: number
+    }>()
     for (const r of rows) {
-      if (!typeMap.has(r.promo_type)) typeMap.set(r.promo_type, { our_items: [], total_count: 0 })
+      if (!typeMap.has(r.promo_type)) typeMap.set(r.promo_type, { our_items: [], top_items: [], total_count: 0 })
       const entry = typeMap.get(r.promo_type)!
       entry.total_count++
+      if (entry.top_items.length < 15) {
+        entry.top_items.push({
+          rank_position: r.rank_position != null ? Number(r.rank_position) : entry.total_count,
+          goods_no:      r.goods_no,
+          goods_name:    r.goods_name ?? r.goods_no,
+          is_ours:       Boolean(r.is_ours),
+        })
+      }
       if (r.is_ours) {
         entry.our_items.push({
-          goods_no: r.goods_no,
-          goods_name: r.goods_name ?? r.goods_no,
+          goods_no:      r.goods_no,
+          goods_name:    r.goods_name ?? r.goods_no,
           rank_position: r.rank_position != null ? Number(r.rank_position) : null,
         })
       }

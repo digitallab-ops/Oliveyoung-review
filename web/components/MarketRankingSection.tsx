@@ -161,7 +161,7 @@ export default function MarketRankingSection({ data, aiInsight }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <SectionDivider tag="Market Pulse" />
+        <SectionDivider tag="시장 랭킹" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">올리브영 시장 전체 순위</h2>
           <span className="text-sm text-text-tertiary">카테고리 Top 100</span>

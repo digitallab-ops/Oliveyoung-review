@@ -12,7 +12,7 @@ export default function NegativeInsights({ data }: Props) {
   return (
     <div className="space-y-5">
       <div>
-        <SectionDivider tag="Negative Points" />
+        <SectionDivider tag="부정 리뷰 분석" />
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">불만 포인트</h2>
           <span className="text-sm text-text-tertiary">상품별 1–2점 리뷰 분석</span>
