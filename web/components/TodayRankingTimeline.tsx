@@ -14,7 +14,15 @@ function fmtHour(h: number): string {
 const CATEGORY_ORDER = ['전체', '스킨케어', '마스크팩', '클렌징', '선케어', '더모 코스메틱', '바디케어', '맨즈에딧']
 
 export default function TodayRankingTimeline({ data }: Props) {
-  if (data.length === 0) return null
+  if (data.length === 0) return (
+    <section>
+      <SectionDivider tag="오늘 순위 타임라인" />
+      <div className="border border-dashed border-border rounded-lg px-6 py-8 text-center">
+        <p className="text-sm text-text-secondary">오늘 수집된 순위 데이터가 없어요</p>
+        <p className="text-xs text-text-tertiary mt-1">3시간마다 자동 수집됩니다</p>
+      </div>
+    </section>
+  )
 
   // 제품별로 그룹핑
   const productMap = new Map<string, { goods_name: string; categories: Map<string, { rank_hour: number; rank_position: number }[]> }>()

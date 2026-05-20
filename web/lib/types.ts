@@ -78,6 +78,8 @@ export interface TimeSeriesPoint {
   month: string    // "2024.01"
   review_cnt: number
   avg_score: number
+  pos_pct: number
+  neg_pct: number
 }
 
 export interface ProductNegativeData {

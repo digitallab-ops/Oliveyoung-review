@@ -92,7 +92,7 @@ export async function generateDailyBrief(
   try {
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
+      max_tokens: 1000,
       system: NO_MARKDOWN_SYSTEM,
       messages: [{ role: 'user', content: buildDailyBriefPrompt(marketData, insights, negativeData) }],
     })
@@ -298,7 +298,7 @@ export async function generateReviewInsight(
   try {
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
+      max_tokens: 1500,
       system: NO_MARKDOWN_SYSTEM,
       messages: [{ role: 'user', content: buildReviewPrompt(insights, negativeData) }],
     })

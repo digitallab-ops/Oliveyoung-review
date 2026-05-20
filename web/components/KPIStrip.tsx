@@ -22,7 +22,7 @@ export default function KPIStrip({ stats }: KPIStripProps) {
         <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ backgroundColor: '#16A34A', opacity: 0.5 }} />
         <InfoTooltip text="전체 리뷰의 가중 평균 평점입니다." />
         <p className="text-xs text-text-secondary mb-2 font-medium">평균 평점</p>
-        <p className="text-[3rem] md:text-[3.4rem] font-bold leading-none mb-2" style={{ color: '#16A34A' }}>
+        <p className="text-[4rem] md:text-[4.8rem] font-bold leading-none mb-2 [font-variant-numeric:tabular-nums]" style={{ color: '#16A34A' }}>
           {stats.avg_score.toFixed(1)}
         </p>
         <p className="text-xs text-text-secondary/70">총 {stats.total_reviews.toLocaleString()}개 리뷰</p>
@@ -32,7 +32,7 @@ export default function KPIStrip({ stats }: KPIStripProps) {
       <KPICard
         label="재구매 의향"
         value={`${stats.repurchase_pct}%`}
-        sub={`${stats.repurchase_count.toLocaleString()}건 언급`}
+        sub={`${stats.repurchase_count.toLocaleString()}건 언급 (실제 재구매율과 다름)`}
         color="#2563EB"
         accentColor="rgba(37,99,235,0.12)"
         tooltip="리뷰 텍스트에서 '재구매', '또 살게요' 등의 표현이 포함된 비율입니다. 실제 재구매율과 다릅니다."
@@ -67,7 +67,7 @@ function KPICard({
       <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ backgroundColor: color, opacity: 0.35 }} />
       <InfoTooltip text={tooltip} />
       <p className="text-xs text-text-secondary mb-3">{label}</p>
-      <p className="text-[2rem] md:text-[2.4rem] font-bold leading-none mb-2" style={{ color }}>
+      <p className="text-[2rem] md:text-[2.4rem] font-bold leading-none mb-2 [font-variant-numeric:tabular-nums]" style={{ color }}>
         {value}
       </p>
       <p className="text-xs text-text-secondary/70">{sub}</p>

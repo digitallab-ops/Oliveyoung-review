@@ -19,7 +19,7 @@ export default function ProductKeywordsSection({ keywords, topics }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {keywords.map(prod => {
           const topic = topicMap.get(prod.goods_no)
           return (

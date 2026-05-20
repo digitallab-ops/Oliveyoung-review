@@ -285,11 +285,17 @@ export async function getProductStats(): Promise<ProductStats[]> {
 }
 
 export async function getTimeSeries(): Promise<TimeSeriesPoint[]> {
-  const rows = await query<{ month: string; review_cnt: string; avg_score: string }>(`
+  const rows = await query<{ month: string; review_cnt: string; avg_score: string; pos_pct: string; neg_pct: string }>(`
     SELECT
       SUBSTRING(created_at, 1, 7)        AS month,
       COUNT(*)                            AS review_cnt,
-      ROUND(AVG(score)::numeric, 2)       AS avg_score
+      ROUND(AVG(score)::numeric, 2)       AS avg_score,
+      ROUND(
+        COUNT(*) FILTER (WHERE score >= 4)::numeric / NULLIF(COUNT(*), 0) * 100, 1
+      )                                   AS pos_pct,
+      ROUND(
+        COUNT(*) FILTER (WHERE score <= 2)::numeric / NULLIF(COUNT(*), 0) * 100, 1
+      )                                   AS neg_pct
     FROM reviews
     WHERE created_at IS NOT NULL AND LENGTH(created_at) >= 7
     GROUP BY month
@@ -299,6 +305,8 @@ export async function getTimeSeries(): Promise<TimeSeriesPoint[]> {
     month:      r.month,
     review_cnt: Number(r.review_cnt),
     avg_score:  Number(r.avg_score),
+    pos_pct:    Number(r.pos_pct),
+    neg_pct:    Number(r.neg_pct),
   }))
 }
 

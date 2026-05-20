@@ -84,37 +84,78 @@ export default function DashboardTabs({
         {/* 오늘 현황 */}
         {active === 'today' && (
           <div className="space-y-10">
-            {/* 오늘의 통합 브리핑 */}
-            {dailyBrief && (
+            {/* ⚠️ 긴급 알람 — 부정 급증 (B-1) */}
+            {negativeAlerts.length > 0 && (
               <div>
-                <SectionDivider tag="오늘 브리핑" />
-                <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-4">
-                  <p className="text-xs font-semibold text-accent mb-3">오늘의 핵심 브리핑 — 랭킹 + 리뷰 종합</p>
-                  <ul className="space-y-2">
-                    {dailyBrief
-                      .split('\n')
-                      .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/^[\s\-·•*\d.]+/, '').trim())
-                      .filter(l => l.length > 10)
-                      .map((msg, i) => (
-                        <li key={i} className="text-sm text-accent-fg flex items-start gap-2">
-                          <span className="text-accent shrink-0 mt-0.5 font-bold text-base leading-none">·</span>
-                          <span className="leading-snug">{msg}</span>
-                        </li>
-                      ))}
-                  </ul>
+                <SectionDivider tag="⚠️ 긴급 알람" />
+                <div className="space-y-2">
+                  {negativeAlerts.map(a => (
+                    <div key={a.goods_no} className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                      <span className="text-red-500 font-bold text-base shrink-0 mt-0.5">!</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-red-700">{a.goods_name}</p>
+                        <p className="text-xs text-red-600 mt-0.5">
+                          최근 7일 부정 리뷰 {a.recent_neg}건
+                          {a.prev_neg > 0 && ` · 전주 대비 +${a.increase_pct}%`}
+                          {a.top_keywords.length > 0 && ` · 주요 키워드: ${a.top_keywords.map(k => k.word).join(', ')}`}
+                        </p>
+                        {a.sample && (
+                          <p className="text-xs text-red-500/80 mt-1 truncate">"{a.sample}"</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
+
+            {/* 오늘의 통합 브리핑 */}
+            {dailyBrief && (() => {
+              const latestHour = todayTimeline.length > 0
+                ? Math.max(...todayTimeline.map(e => e.rank_hour)) : null
+              const latestRanks = latestHour != null
+                ? todayTimeline.filter(e => e.rank_hour === latestHour) : []
+              return (
+                <div>
+                  <SectionDivider tag="오늘 브리핑" />
+                  <div className="bg-accent-bg border border-accent-border rounded-lg px-4 py-4">
+                    <p className="text-xs font-semibold text-accent mb-3">오늘의 핵심 브리핑 — 랭킹 + 리뷰 종합</p>
+                    <ul className="space-y-2">
+                      {dailyBrief
+                        .split('\n')
+                        .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/^[\s\-·•*\d.]+/, '').trim())
+                        .filter(l => l.length > 10)
+                        .map((msg, i) => (
+                          <li key={i} className="text-sm text-accent-fg flex items-start gap-2">
+                            <span className="text-accent shrink-0 mt-0.5 font-bold text-base leading-none">·</span>
+                            <span className="leading-snug">{msg}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                  {/* C-1: 자사 현재 순위 요약 칩 */}
+                  {latestRanks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {latestRanks.map((e, i) => (
+                        <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-accent-border bg-accent-bg text-xs">
+                          <span className="text-text-secondary">{e.category_name}</span>
+                          <span className="font-semibold text-accent">{e.rank_position}위</span>
+                        </span>
+                      ))}
+                      <span className="text-xs text-text-tertiary self-center">{latestHour}시 기준</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* 프로모션 입점 현황 */}
             {promoStatus.length > 0 && (
               <PromoSection data={promoStatus} />
             )}
 
-            {/* 오늘 시간별 순위 타임라인 */}
-            {todayTimeline.length > 0 && (
-              <TodayRankingTimeline data={todayTimeline} />
-            )}
+            {/* 오늘 시간별 순위 타임라인 (A-4: 항상 렌더, 빈 상태는 내부 처리) */}
+            <TodayRankingTimeline data={todayTimeline} />
 
             {/* 셀퓨전씨 자사 순위 */}
             {rankings.length > 0 && (
