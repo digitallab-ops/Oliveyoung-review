@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData } from './types'
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -83,7 +83,13 @@ const STOPWORDS = `
     '엄청','꾸준히','아주','살짝','일단','다시','원래','아직',
     '항상','그냥','정도로','따로','더욱','특히','오히려','확실히',
     '바로','같이','함께','다들','많은','적은','없는','있는',
-    '완전','요즘','생각보다','그래도','그러나','하지만','그리고'
+    '완전','요즘','생각보다','그래도','그러나','하지만','그리고',
+    '선크림','선스틱','선케어','패드','파운데이션','쿠션','아이크림',
+    '젤크림','수분크림','클렌징','폼클렌징','마스크팩','스킨케어',
+    '발림','흡수','촉촉','냄새','향기','용량','가성비','색감','발색','지속',
+    '얼굴','목','눈가','입술','피부결',
+    '완전히','진짜로','별로','무난',
+    '올영','브랜드','제형','텍스처','텍처'
   `
 
 const SUFFIX_FILTER = `
@@ -717,6 +723,130 @@ export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
       top_keywords: kwMap.get(a.goods_no) ?? [],
       sample: sampleMap.get(a.goods_no) ?? '',
     }))
+  } catch {
+    return []
+  }
+}
+
+export async function getProductKeywords(): Promise<ProductKeywordData[]> {
+  try {
+    const topProducts = await query<{ goods_no: string; goods_name: string; review_cnt: string }>(`
+      SELECT r.goods_no, p.goods_name, COUNT(*) AS review_cnt
+      FROM reviews r
+      JOIN products p ON r.goods_no = p.goods_no
+      WHERE r.content IS NOT NULL AND r.content != ''
+      GROUP BY r.goods_no, p.goods_name
+      ORDER BY review_cnt DESC LIMIT 8
+    `)
+
+    if (topProducts.length === 0) return []
+    const goodsNos = topProducts.map(p => p.goods_no)
+
+    const posRows = await query<{ goods_no: string; word: string; cnt: string }>(`
+      SELECT goods_no, word, COUNT(*) AS cnt FROM (
+        SELECT r.goods_no, UNNEST(REGEXP_MATCHES(r.content, '[가-힣]{2,6}', 'g')) AS word
+        FROM reviews r
+        WHERE r.goods_no = ANY($1) AND r.score >= 4
+          AND r.content IS NOT NULL AND r.content != ''
+      ) t
+      WHERE word NOT IN (${STOPWORDS})
+      AND ${SUFFIX_FILTER}
+      AND LENGTH(word) >= 2
+      GROUP BY goods_no, word
+      ORDER BY goods_no, cnt DESC
+    `, [goodsNos])
+
+    const negRows = await query<{ goods_no: string; word: string; cnt: string }>(`
+      SELECT goods_no, word, COUNT(*) AS cnt FROM (
+        SELECT r.goods_no, UNNEST(REGEXP_MATCHES(r.content, '[가-힣]{2,6}', 'g')) AS word
+        FROM reviews r
+        WHERE r.goods_no = ANY($1) AND r.score <= 2
+          AND r.content IS NOT NULL AND r.content != ''
+      ) t
+      WHERE word NOT IN (${STOPWORDS})
+      AND ${SUFFIX_FILTER}
+      AND LENGTH(word) >= 2
+      GROUP BY goods_no, word
+      ORDER BY goods_no, cnt DESC
+    `, [goodsNos])
+
+    const posMap = new Map<string, { word: string; cnt: number }[]>()
+    const negMap = new Map<string, { word: string; cnt: number }[]>()
+    for (const k of posRows) {
+      if (!posMap.has(k.goods_no)) posMap.set(k.goods_no, [])
+      if (posMap.get(k.goods_no)!.length < 5)
+        posMap.get(k.goods_no)!.push({ word: k.word, cnt: Number(k.cnt) })
+    }
+    for (const k of negRows) {
+      if (!negMap.has(k.goods_no)) negMap.set(k.goods_no, [])
+      if (negMap.get(k.goods_no)!.length < 5)
+        negMap.get(k.goods_no)!.push({ word: k.word, cnt: Number(k.cnt) })
+    }
+
+    return topProducts.map(p => ({
+      goods_no:     p.goods_no,
+      goods_name:   p.goods_name,
+      review_cnt:   Number(p.review_cnt),
+      pos_keywords: posMap.get(p.goods_no) ?? [],
+      neg_keywords: negMap.get(p.goods_no) ?? [],
+    }))
+  } catch {
+    return []
+  }
+}
+
+export async function getProductTopicInsights(): Promise<ProductTopicData[]> {
+  try {
+    const topProducts = await query<{ goods_no: string; goods_name: string }>(`
+      SELECT r.goods_no, p.goods_name
+      FROM reviews r
+      JOIN products p ON r.goods_no = p.goods_no
+      WHERE r.content IS NOT NULL AND r.content != ''
+      GROUP BY r.goods_no, p.goods_name
+      ORDER BY COUNT(*) DESC LIMIT 5
+    `)
+
+    if (topProducts.length === 0) return []
+
+    const goodsNos = topProducts.map(p => p.goods_no)
+    const cached = await query<{ goods_no: string; topics_json: string }>(`
+      SELECT goods_no, topics_json
+      FROM product_topic_insights
+      WHERE goods_no = ANY($1) AND insight_date = CURRENT_DATE
+    `, [goodsNos])
+
+    const cachedMap = new Map(cached.map(r => [r.goods_no, JSON.parse(r.topics_json)]))
+    const missing = topProducts.filter(p => !cachedMap.has(p.goods_no))
+
+    if (missing.length > 0) {
+      const { generateProductTopicInsights } = await import('./ai')
+      for (const prod of missing) {
+        const reviewRows = await query<{ content: string }>(`
+          SELECT content FROM reviews
+          WHERE goods_no = $1 AND content IS NOT NULL AND content != ''
+          ORDER BY created_at DESC LIMIT 80
+        `, [prod.goods_no])
+        const contents = reviewRows.map(r => r.content.replace(/<[^>]+>/g, ' ').trim())
+        const topics = await generateProductTopicInsights(prod.goods_no, prod.goods_name, contents)
+        if (topics) {
+          cachedMap.set(prod.goods_no, topics)
+          const client = await pool.connect()
+          try {
+            await client.query(`
+              INSERT INTO product_topic_insights (goods_no, topics_json, insight_date)
+              VALUES ($1, $2, CURRENT_DATE)
+              ON CONFLICT (goods_no, insight_date) DO UPDATE SET topics_json = EXCLUDED.topics_json
+            `, [prod.goods_no, JSON.stringify(topics)])
+          } finally {
+            client.release()
+          }
+        }
+      }
+    }
+
+    return topProducts
+      .filter(p => cachedMap.has(p.goods_no))
+      .map(p => ({ goods_no: p.goods_no, ...cachedMap.get(p.goods_no) }))
   } catch {
     return []
   }

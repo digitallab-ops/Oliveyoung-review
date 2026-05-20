@@ -31,7 +31,13 @@ _STOPWORDS_SQL = """
     '엄청','꾸준히','아주','살짝','일단','다시','원래','아직',
     '항상','그냥','정도로','따로','더욱','특히','오히려','확실히',
     '바로','같이','함께','다들','많은','적은','없는','있는',
-    '완전','요즘','생각보다','그래도','그러나','하지만','그리고'
+    '완전','요즘','생각보다','그래도','그러나','하지만','그리고',
+    '선크림','선스틱','선케어','패드','파운데이션','쿠션','아이크림',
+    '젤크림','수분크림','클렌징','폼클렌징','마스크팩','스킨케어',
+    '발림','흡수','촉촉','냄새','향기','용량','가성비','색감','발색','지속',
+    '얼굴','목','눈가','입술','피부결',
+    '완전히','진짜로','별로','무난',
+    '올영','브랜드','제형','텍스처','텍처'
 """
 
 _SUFFIX_FILTER_SQL = """
@@ -197,6 +203,16 @@ def init_db(conn=None):
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_promo_items_date
                     ON promo_items(collected_at DESC)
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS product_topic_insights (
+                    id           SERIAL PRIMARY KEY,
+                    goods_no     TEXT NOT NULL,
+                    insight_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    topics_json  TEXT NOT NULL,
+                    generated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (goods_no, insight_date)
+                )
             """)
 
     if conn is not None:

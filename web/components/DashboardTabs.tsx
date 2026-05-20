@@ -5,7 +5,7 @@ import type {
   Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
-  OurRankingTimelineEntry, PromoStatusData
+  OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData
 } from '@/lib/types'
 import InsightCards from '@/components/InsightCards'
 import NegativeInsights from '@/components/NegativeInsights'
@@ -18,6 +18,7 @@ import MarketRankingSection from '@/components/MarketRankingSection'
 import NewProductInsights from '@/components/NewProductInsights'
 import TodayRankingTimeline from '@/components/TodayRankingTimeline'
 import PromoSection from '@/components/PromoSection'
+import ProductKeywordsSection from '@/components/ProductKeywordsSection'
 import SectionDivider from '@/components/SectionDivider'
 
 interface Props {
@@ -37,6 +38,8 @@ interface Props {
   negativeAlerts: NegativeAlertData[]
   todayTimeline: OurRankingTimelineEntry[]
   promoStatus: PromoStatusData[]
+  productKeywords: ProductKeywordData[]
+  productTopics: ProductTopicData[]
 }
 
 const TABS = [
@@ -51,7 +54,7 @@ type TabId = typeof TABS[number]['id']
 export default function DashboardTabs({
   insights, timeSeries, negativeData, scoreDist, productStats,
   summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight, dailyBrief,
-  newProducts, negativeAlerts, todayTimeline, promoStatus
+  newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
 
@@ -190,6 +193,9 @@ export default function DashboardTabs({
                   <TimeSeriesChart data={timeSeries} />
                 </div>
               </section>
+            )}
+            {productKeywords.length > 0 && (
+              <ProductKeywordsSection keywords={productKeywords} topics={productTopics} />
             )}
             <InsightCards insights={insights} />
             {negativeData.length > 0 && <NegativeInsights data={negativeData} />}

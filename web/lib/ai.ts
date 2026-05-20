@@ -244,6 +244,40 @@ ${productIssues.join('\n')}
 - 제목줄 작성 금지, 바로 - 로 시작`
 }
 
+// ──────────────────────────────────────────
+// 4. 제품별 주제 분석 (구매동기 / 사용시점 / 같이언급제품)
+// ──────────────────────────────────────────
+
+export async function generateProductTopicInsights(
+  goodsNo: string,
+  goodsName: string,
+  reviews: string[]
+): Promise<{ purchase_motivation: string[]; usage_timing: string[]; co_mentioned: string[] } | null> {
+  if (!process.env.ANTHROPIC_API_KEY || reviews.length === 0) return null
+
+  const sample = reviews.slice(0, 80).join('\n---\n')
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: '당신은 리뷰 분석 AI입니다. JSON만 출력하고 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
+      messages: [{
+        role: 'user',
+        content: `다음은 "${goodsName}" 제품의 실구매 리뷰입니다.\n\n${sample}\n\n위 리뷰에서 다음 3가지를 각 최대 5개 한국어 키워드로 추출하세요:\n- purchase_motivation: 소비자가 이 제품을 구매한 이유/동기\n- usage_timing: 제품을 사용하는 시점/상황\n- co_mentioned: 함께 언급된 다른 제품명/브랜드명\n\n반드시 다음 JSON 형식으로만 출력:\n{"purchase_motivation":["..."],"usage_timing":["..."],"co_mentioned":["..."]}`,
+      }],
+    })
+    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    if (!text) return null
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    return JSON.parse(jsonMatch[0])
+  } catch (e) {
+    console.error(`Topic insights failed for ${goodsNo}:`, e)
+    return null
+  }
+}
+
 export async function generateReviewInsight(
   insights: Insights,
   negativeData: ProductNegativeData[]

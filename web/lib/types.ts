@@ -140,6 +140,21 @@ export interface NegativeAlertData {
   sample: string
 }
 
+export interface ProductKeywordData {
+  goods_no: string
+  goods_name: string
+  review_cnt: number
+  pos_keywords: { word: string; cnt: number }[]
+  neg_keywords: { word: string; cnt: number }[]
+}
+
+export interface ProductTopicData {
+  goods_no: string
+  purchase_motivation: string[]
+  usage_timing: string[]
+  co_mentioned: string[]
+}
+
 export interface OurRankingTimelineEntry {
   rank_hour: number
   category_name: string
