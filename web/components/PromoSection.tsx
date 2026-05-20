@@ -14,6 +14,8 @@ const PROMO_LABELS: Record<string, string> = {
   daily_special: '하루특가',
 }
 
+const DEFAULT_SHOW = 10
+
 export default function PromoSection({ data }: Props) {
   if (data.length === 0) return null
 
@@ -23,7 +25,7 @@ export default function PromoSection({ data }: Props) {
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-xl font-semibold text-text-primary">프로모션 입점 현황</h2>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {data.map(d => (
           <PromoCard key={d.promo_type} data={d} />
         ))}
@@ -36,7 +38,7 @@ function PromoCard({ data: d }: { data: PromoStatusData }) {
   const [expanded, setExpanded] = useState(false)
   const label = PROMO_LABELS[d.promo_type] ?? d.promo_type
   const hasOurs = d.our_items.length > 0
-  const visibleItems = expanded ? d.top_items : d.top_items.slice(0, 5)
+  const visibleItems = expanded ? d.top_items : d.top_items.slice(0, DEFAULT_SHOW)
 
   return (
     <div className={`rounded-lg border overflow-hidden ${
@@ -44,7 +46,10 @@ function PromoCard({ data: d }: { data: PromoStatusData }) {
     }`}>
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
-        <span className="text-sm font-semibold text-text-primary">{label}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-text-primary">{label}</span>
+          <span className="text-xs text-text-tertiary">{d.total_count}개</span>
+        </div>
         {hasOurs ? (
           <span className="text-xs font-semibold text-emerald-600 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
             입점 ✓
@@ -61,33 +66,29 @@ function PromoCard({ data: d }: { data: PromoStatusData }) {
         {visibleItems.map(item => (
           <li
             key={item.goods_no}
-            className={`flex items-center gap-2 px-4 py-2 ${
+            className={`flex items-start gap-2 px-4 py-2 ${
               item.is_ours ? 'bg-emerald-100/60' : ''
             }`}
           >
-            <span className="text-xs font-semibold text-text-tertiary w-7 shrink-0 text-right">
-              {item.rank_position}위
-            </span>
-            <span className={`text-xs flex-1 truncate ${item.is_ours ? 'font-semibold text-emerald-800' : 'text-text-secondary'}`}>
+            <span className={`text-xs leading-snug flex-1 ${
+              item.is_ours ? 'font-semibold text-emerald-800' : 'text-text-secondary'
+            }`}>
               {item.goods_name}
             </span>
             {item.is_ours && (
-              <span className="text-[10px] font-semibold text-emerald-600 shrink-0">자사</span>
+              <span className="text-[10px] font-semibold text-emerald-600 shrink-0 mt-0.5">자사</span>
             )}
           </li>
         ))}
       </ul>
 
-      {/* 전체 보기 / 접기 */}
-      {d.top_items.length > 5 && (
+      {/* 더 보기 / 접기 */}
+      {d.top_items.length > DEFAULT_SHOW && (
         <button
           onClick={() => setExpanded(v => !v)}
           className="w-full px-4 py-2 text-xs text-text-tertiary hover:text-text-secondary transition-colors text-right border-t border-black/5"
         >
-          {expanded
-            ? '접기 ∧'
-            : `전체 ${d.total_count.toLocaleString()}개 중 ${d.top_items.length}개 보기 ∨`
-          }
+          {expanded ? '접기 ∧' : `${d.top_items.length - DEFAULT_SHOW}개 더 보기 ∨`}
         </button>
       )}
       {d.top_items.length === 0 && (
