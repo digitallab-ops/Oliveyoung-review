@@ -20,6 +20,8 @@ import TodayRankingTimeline from '@/components/TodayRankingTimeline'
 import PromoSection from '@/components/PromoSection'
 import ProductKeywordsSection from '@/components/ProductKeywordsSection'
 import SectionDivider from '@/components/SectionDivider'
+import OlivepickTab from '@/components/OlivepickTab'
+import TodayDealTab from '@/components/TodayDealTab'
 
 interface Props {
   insights: Insights
@@ -43,10 +45,12 @@ interface Props {
 }
 
 const TABS = [
-  { id: 'today',   label: '오늘 현황' },
-  { id: 'reviews', label: '리뷰 분석' },
-  { id: 'market',  label: '시장 랭킹' },
-  { id: 'history', label: '이력' },
+  { id: 'today',      label: '오늘 현황' },
+  { id: 'reviews',    label: '리뷰 분석' },
+  { id: 'market',     label: '시장 랭킹' },
+  { id: 'history',    label: '이력' },
+  { id: 'olivepick',  label: '올영픽' },
+  { id: 'today_deal', label: '오특' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -264,6 +268,12 @@ export default function DashboardTabs({
         {active === 'history' && (
           <InsightsHistory history={insightsHistory} />
         )}
+
+        {/* 올영픽 */}
+        {active === 'olivepick' && <OlivepickTab />}
+
+        {/* 오특 */}
+        {active === 'today_deal' && <TodayDealTab />}
       </div>
     </div>
   )

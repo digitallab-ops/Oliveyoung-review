@@ -279,6 +279,39 @@ export async function generateProductTopicInsights(
   }
 }
 
+// ──────────────────────────────────────────
+// 5. 올영픽 월별 컨셉 분석
+// ──────────────────────────────────────────
+
+export async function generateOlivepickInsight(
+  month: string,
+  productNames: string[]
+): Promise<{ concept_tags: string[]; summary: string } | null> {
+  if (!process.env.ANTHROPIC_API_KEY || productNames.length === 0) return null
+
+  const nameList = productNames.slice(0, 80).join('\n')
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: '당신은 올리브영 MD 전문가입니다. JSON만 출력하세요. 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
+      messages: [{
+        role: 'user',
+        content: `다음은 ${month} 올영픽 큐레이션 상품 목록입니다.\n\n${nameList}\n\n위 상품들을 분석하여:\n1. concept_tags: 이달 올영픽의 기획 컨셉을 나타내는 태그 최대 5개 (예: "1+1", "봄 시즌", "굿즈 기획", "데일리케어", "선케어 강화")\n2. summary: 이달 올영픽 큐레이션의 전반적인 기획 방향을 1~2문장으로 요약\n\n반드시 다음 JSON 형식으로만 출력:\n{"concept_tags":["..."],"summary":"..."}`,
+      }],
+    })
+    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    if (!text) return null
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    return JSON.parse(jsonMatch[0])
+  } catch (e) {
+    console.error(`Olivepick insight failed for ${month}:`, e)
+    return null
+  }
+}
+
 export async function generateReviewInsight(
   insights: Insights,
   negativeData: ProductNegativeData[]

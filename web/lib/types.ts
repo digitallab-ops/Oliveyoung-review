@@ -172,6 +172,44 @@ export interface PromoStatusData {
   total_count: number
 }
 
+export interface OlivepickProduct {
+  goods_no: string
+  goods_name: string
+  rank_position: number | null
+  category_name: string | null
+  is_ours: boolean
+}
+
+export interface PromoMonthlyInsight {
+  month: string
+  concept_tags: string[]
+  summary: string
+  generated_at: string | null
+}
+
+export interface OlivepickMonth {
+  month: string
+  products: OlivepickProduct[]
+  category_counts: { category_name: string; count: number }[]
+  our_count: number
+  total_count: number
+  insight: PromoMonthlyInsight | null
+}
+
+export interface TodayDealItem {
+  id: number
+  collected_at: string
+  rank_position: number | null
+  goods_no: string
+  goods_name: string
+  is_ours: boolean
+}
+
+export interface TodayDealHistoryResponse {
+  items: TodayDealItem[]
+  total: number
+}
+
 export interface InsightsSnapshot {
   id: number
   snapshot_at: string

@@ -96,12 +96,12 @@ def parse_prd_info(html: str) -> list[dict]:
         seen.add(goods_no)
         name_el = item.select_one('.tx_name, .prd_name')
         name = name_el.get_text(strip=True) if name_el else ''
-        results.append({'goods_no': goods_no, 'name': name})
+        results.append({'goods_no': goods_no, 'name': name, 'category_name': None})
     return results
 
 
 def fetch_olivepick(session) -> list[dict]:
-    """올영픽 기획전 페이지 전체 파싱"""
+    """올영픽 기획전 페이지 전체 파싱 (카테고리 섹션 포함)"""
     r = session.get(
         OLIVEPICK_URL,
         params={'dispCatNo': OLIVEPICK_CAT},
@@ -111,7 +111,43 @@ def fetch_olivepick(session) -> list[dict]:
     if r.status_code != 200:
         print(f'  올영픽 HTTP {r.status_code}')
         return []
-    return parse_prd_info(r.text)
+
+    soup = BeautifulSoup(r.text, 'html.parser')
+    seen = set()
+    results = []
+    current_category = None
+
+    for el in soup.find_all(['h2', 'h3', 'h4', 'li']):
+        if el.name in ('h2', 'h3', 'h4'):
+            text = el.get_text(strip=True)
+            if text and len(text) < 40:
+                current_category = text
+            continue
+
+        prd = el.select_one('.prd_info')
+        if not prd:
+            continue
+        link = (el or prd).select_one('a[href*="goodsNo"]')
+        if not link:
+            continue
+        m = re.search(r'goodsNo=([A-Z0-9]+)', link.get('href', ''))
+        if not m or m.group(1) in seen:
+            continue
+        goods_no = m.group(1)
+        seen.add(goods_no)
+        name_el = prd.select_one('.tx_name, .prd_name')
+        name = name_el.get_text(strip=True) if name_el else ''
+        results.append({
+            'goods_no': goods_no,
+            'name': name,
+            'category_name': current_category,
+        })
+
+    # fallback: 카테고리 파싱 실패 시 기존 방식으로 재시도
+    if not results:
+        results = [{'goods_no': p['goods_no'], 'name': p['name'], 'category_name': None}
+                   for p in parse_prd_info(r.text)]
+    return results
 
 
 def fetch_hotdeal_page(session, today_str: str, flt_condition: str, page_idx: int) -> list[dict]:
@@ -151,7 +187,7 @@ def fetch_hotdeal_page(session, today_str: str, flt_condition: str, page_idx: in
         else:
             link = li.select_one('a[href*="goodsNo"]')
             name = link.get('data-ref-goodsnm', '') if link else ''
-        results.append({'goods_no': goods_no, 'name': name})
+        results.append({'goods_no': goods_no, 'name': name, 'category_name': None})
     return results
 
 
@@ -177,13 +213,14 @@ def save_items(conn, ptype: str, items: list[dict], our_goods: set, today: date)
             is_ours = item['goods_no'] in our_goods
             cur.execute("""
                 INSERT INTO promo_items
-                    (promo_type, collected_at, rank_position, goods_no, goods_name, is_ours)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                    (promo_type, collected_at, rank_position, goods_no, goods_name, is_ours, category_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (promo_type, collected_at, goods_no) DO UPDATE SET
                     rank_position = EXCLUDED.rank_position,
                     goods_name    = EXCLUDED.goods_name,
-                    is_ours       = EXCLUDED.is_ours
-            """, (ptype, today, rank, item['goods_no'], item['name'], is_ours))
+                    is_ours       = EXCLUDED.is_ours,
+                    category_name = EXCLUDED.category_name
+            """, (ptype, today, rank, item['goods_no'], item['name'], is_ours, item.get('category_name')))
 
     our_hits = [(i + 1, it) for i, it in enumerate(items) if it['goods_no'] in our_goods]
     if our_hits:

@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight } from './types'
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -824,6 +824,145 @@ export async function getProductKeywords(): Promise<ProductKeywordData[]> {
   } catch {
     return []
   }
+}
+
+export async function getOlivepickHistory(): Promise<OlivepickMonth[]> {
+  try {
+    const monthRows = await query<{ month: string }>(`
+      SELECT DISTINCT TO_CHAR(collected_at, 'YYYY-MM') AS month
+      FROM promo_items
+      WHERE promo_type = 'olivepick'
+      ORDER BY month DESC
+    `)
+    if (monthRows.length === 0) return []
+    const months = monthRows.map(r => r.month)
+
+    const productRows = await query<{
+      month: string
+      goods_no: string
+      goods_name: string | null
+      rank_position: string | null
+      category_name: string | null
+      is_ours: boolean
+    }>(`
+      SELECT
+        TO_CHAR(p.collected_at, 'YYYY-MM') AS month,
+        p.goods_no, p.goods_name, p.rank_position, p.category_name, p.is_ours
+      FROM promo_items p
+      INNER JOIN (
+        SELECT TO_CHAR(collected_at, 'YYYY-MM') AS m, MIN(collected_at) AS min_date
+        FROM promo_items
+        WHERE promo_type = 'olivepick'
+        GROUP BY m
+      ) md ON TO_CHAR(p.collected_at, 'YYYY-MM') = md.m AND p.collected_at = md.min_date
+      WHERE p.promo_type = 'olivepick'
+      ORDER BY month DESC, p.rank_position NULLS LAST
+    `)
+
+    const insightRows = await query<{
+      month: string; concept_tags: string[]; summary: string; generated_at: string
+    }>(`
+      SELECT month, concept_tags, summary, generated_at::text
+      FROM promo_monthly_insights
+      WHERE month = ANY($1)
+    `, [months])
+    const insightMap = new Map(insightRows.map(r => [r.month, r]))
+
+    const monthMap = new Map<string, OlivepickMonth>()
+    for (const m of months) {
+      monthMap.set(m, {
+        month: m, products: [], category_counts: [],
+        our_count: 0, total_count: 0,
+        insight: insightMap.has(m) ? {
+          month: m,
+          concept_tags: insightMap.get(m)!.concept_tags,
+          summary: insightMap.get(m)!.summary,
+          generated_at: insightMap.get(m)!.generated_at ?? null,
+        } : null,
+      })
+    }
+
+    for (const r of productRows) {
+      const entry = monthMap.get(r.month)
+      if (!entry) continue
+      entry.products.push({
+        goods_no: r.goods_no,
+        goods_name: r.goods_name ?? r.goods_no,
+        rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+        category_name: r.category_name,
+        is_ours: Boolean(r.is_ours),
+      })
+      entry.total_count++
+      if (r.is_ours) entry.our_count++
+    }
+
+    for (const entry of monthMap.values()) {
+      const catMap = new Map<string, number>()
+      for (const p of entry.products) {
+        if (p.category_name) catMap.set(p.category_name, (catMap.get(p.category_name) ?? 0) + 1)
+      }
+      entry.category_counts = Array.from(catMap.entries())
+        .map(([category_name, count]) => ({ category_name, count }))
+        .sort((a, b) => b.count - a.count)
+    }
+
+    return Array.from(monthMap.values())
+  } catch {
+    return []
+  }
+}
+
+export async function getTodayDealHistory(from: string, to: string): Promise<TodayDealHistoryResponse> {
+  try {
+    const rows = await query<{
+      id: string; collected_at: string; rank_position: string | null
+      goods_no: string; goods_name: string | null; is_ours: boolean
+    }>(`
+      SELECT id, collected_at::text, rank_position, goods_no, goods_name, is_ours
+      FROM promo_items
+      WHERE promo_type = 'today_deal'
+        AND collected_at BETWEEN $1 AND $2
+      ORDER BY collected_at DESC, rank_position NULLS LAST
+    `, [from, to])
+
+    const items = rows.map(r => ({
+      id: Number(r.id),
+      collected_at: r.collected_at.slice(0, 10),
+      rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+      goods_no: r.goods_no,
+      goods_name: r.goods_name ?? r.goods_no,
+      is_ours: Boolean(r.is_ours),
+    }))
+    return { items, total: items.length }
+  } catch {
+    return { items: [], total: 0 }
+  }
+}
+
+export async function getPromoMonthlyInsight(month: string): Promise<PromoMonthlyInsight | null> {
+  try {
+    const rows = await query<{
+      month: string; concept_tags: string[]; summary: string; generated_at: string
+    }>(`
+      SELECT month, concept_tags, summary, generated_at::text
+      FROM promo_monthly_insights WHERE month = $1
+    `, [month])
+    if (!rows[0]) return null
+    return { month: rows[0].month, concept_tags: rows[0].concept_tags, summary: rows[0].summary, generated_at: rows[0].generated_at ?? null }
+  } catch {
+    return null
+  }
+}
+
+export async function savePromoMonthlyInsight(month: string, concept_tags: string[], summary: string): Promise<void> {
+  await query(`
+    INSERT INTO promo_monthly_insights (month, concept_tags, summary, generated_at, updated_at)
+    VALUES ($1, $2, $3, NOW(), NOW())
+    ON CONFLICT (month) DO UPDATE SET
+      concept_tags = EXCLUDED.concept_tags,
+      summary      = EXCLUDED.summary,
+      updated_at   = NOW()
+  `, [month, concept_tags, summary])
 }
 
 export async function getProductTopicInsights(): Promise<ProductTopicData[]> {

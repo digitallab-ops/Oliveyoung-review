@@ -205,6 +205,23 @@ def init_db(conn=None):
                     ON promo_items(collected_at DESC)
             """)
             cur.execute("""
+                ALTER TABLE promo_items
+                    ADD COLUMN IF NOT EXISTS category_name VARCHAR(100)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_promo_items_type_date
+                    ON promo_items(promo_type, collected_at DESC)
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS promo_monthly_insights (
+                    month         CHAR(7)   PRIMARY KEY,
+                    concept_tags  TEXT[]    NOT NULL DEFAULT '{}',
+                    summary       TEXT      NOT NULL DEFAULT '',
+                    generated_at  TIMESTAMP DEFAULT NOW(),
+                    updated_at    TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS product_topic_insights (
                     id           SERIAL PRIMARY KEY,
                     goods_no     TEXT NOT NULL,
