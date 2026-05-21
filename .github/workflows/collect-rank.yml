@@ -28,6 +28,10 @@ jobs:
           BRAND_CODE: ${{ secrets.BRAND_CODE }}
         run: python -m collector.rank_collector
 
+      - name: Revalidate cache
+        if: success()
+        run: curl -s -X POST https://oliveyoungreview.vercel.app/api/revalidate
+
       - name: Notify failure
         if: failure()
         run: |

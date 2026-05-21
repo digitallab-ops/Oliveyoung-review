@@ -29,6 +29,10 @@ jobs:
           SWIT_WEBHOOK_URL: ${{ secrets.SWIT_WEBHOOK_URL }}
         run: python -m collector.promo_collector
 
+      - name: Revalidate cache
+        if: success()
+        run: curl -s -X POST https://oliveyoungreview.vercel.app/api/revalidate
+
       - name: Notify failure
         if: failure()
         run: |
