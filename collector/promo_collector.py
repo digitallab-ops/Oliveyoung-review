@@ -14,9 +14,9 @@ import os
 import sys
 import re
 import time
-import smtplib
+import json
+import urllib.request
 from datetime import date
-from email.mime.text import MIMEText
 
 try:
     from curl_cffi import requests as cf_requests
@@ -30,29 +30,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ALERT_TO = os.getenv('ALERT_EMAIL', 'lsmlub99@wonik.com')
-SMTP_HOST = os.getenv('SMTP_HOST', '')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-SMTP_USER = os.getenv('SMTP_USER', '')
-SMTP_PASS = os.getenv('SMTP_PASS', '')
+SWIT_WEBHOOK = os.getenv('SWIT_WEBHOOK_URL', '')
 
 
-def send_alert(subject: str, body: str):
-    if not SMTP_HOST or not SMTP_USER:
-        print(f'  [알림 미설정] {subject}')
+def send_alert(text: str):
+    if not SWIT_WEBHOOK:
+        print(f'  [알림 미설정] {text}')
         return
     try:
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = subject
-        msg['From'] = SMTP_USER
-        msg['To'] = ALERT_TO
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(SMTP_USER, [ALERT_TO], msg.as_string())
-        print(f'  알림 전송 완료 → {ALERT_TO}')
+        payload = json.dumps({'text': text}).encode('utf-8')
+        req = urllib.request.Request(
+            SWIT_WEBHOOK,
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        urllib.request.urlopen(req, timeout=10)
+        print('  스윗 알림 전송 완료')
     except Exception as e:
-        print(f'  알림 전송 실패: {e}')
+        print(f'  스윗 알림 전송 실패: {e}')
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from db.schema import get_conn, init_db
@@ -234,15 +230,13 @@ def run():
             else:
                 print('  경고: 상품 없음 — dispCatNo 확인 필요')
                 send_alert(
-                    f'[올영픽 수집 오류] {today} 상품 0건',
-                    f'올영픽 수집 결과가 0건입니다.\n\n'
-                    f'매달 이벤트 페이지 URL이 변경되었을 수 있습니다.\n'
-                    f'아래 URL에서 dispCatNo 값을 확인하고 promo_collector.py의 OLIVEPICK_CAT을 업데이트해주세요.\n\n'
-                    f'https://www.oliveyoung.co.kr/store/planshop/getPlanShopDetail.do?dispCatNo={OLIVEPICK_CAT}',
+                    f'[올영픽 수집 오류] {today} 상품 0건\n'
+                    f'이벤트 페이지 URL이 변경되었을 수 있습니다.\n'
+                    f'promo_collector.py의 OLIVEPICK_CAT 값을 확인해주세요.'
                 )
         except Exception as e:
             print(f'  오류: {e}')
-            send_alert(f'[올영픽 수집 오류] {today} 예외 발생', f'오류 내용: {e}')
+            send_alert(f'[올영픽 수집 오류] {today} 예외 발생\n{e}')
         time.sleep(2)
 
         # ── 오늘의 특가 ──
@@ -255,13 +249,10 @@ def run():
                     save_items(conn, ptype, items, our_goods, today)
                 else:
                     print('  경고: 상품 없음')
-                    send_alert(
-                        f'[{label} 수집 오류] {today} 상품 0건',
-                        f'{label} 수집 결과가 0건입니다.\n수동으로 확인이 필요합니다.',
-                    )
+                    send_alert(f'[{label} 수집 오류] {today} 상품 0건\n수동으로 확인이 필요합니다.')
             except Exception as e:
                 print(f'  오류: {e}')
-                send_alert(f'[{label} 수집 오류] {today} 예외 발생', f'오류 내용: {e}')
+                send_alert(f'[{label} 수집 오류] {today} 예외 발생\n{e}')
             time.sleep(2)
 
         print('\n=== 완료 ===')
