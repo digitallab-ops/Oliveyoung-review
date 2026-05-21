@@ -222,12 +222,17 @@ def init_db(conn=None):
                 )
             """)
             cur.execute("""
+                ALTER TABLE promo_monthly_insights
+                    ADD COLUMN IF NOT EXISTS action_points TEXT[] NOT NULL DEFAULT '{}'
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS promo_monthly_insights_history (
-                    id           SERIAL PRIMARY KEY,
-                    month        CHAR(7) NOT NULL,
-                    concept_tags TEXT[]  NOT NULL DEFAULT '{}',
-                    summary      TEXT    NOT NULL DEFAULT '',
-                    saved_at     TIMESTAMP DEFAULT NOW()
+                    id            SERIAL PRIMARY KEY,
+                    month         CHAR(7) NOT NULL,
+                    concept_tags  TEXT[]  NOT NULL DEFAULT '{}',
+                    summary       TEXT    NOT NULL DEFAULT '',
+                    action_points TEXT[]  NOT NULL DEFAULT '{}',
+                    saved_at      TIMESTAMP DEFAULT NOW()
                 )
             """)
             cur.execute("""

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'AI generation failed' }, { status: 500 })
     }
 
-    await savePromoMonthlyInsight(month, result.concept_tags, result.summary)
+    await savePromoMonthlyInsight(month, result.concept_tags, result.summary, result.action_points)
     return NextResponse.json(result)
   } catch (e) {
     console.error(e)
@@ -38,17 +38,18 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const { month, concept_tags, summary } = await req.json() as {
+    const { month, concept_tags, summary, action_points } = await req.json() as {
       month: string
       concept_tags: string[]
       summary: string
+      action_points: string[]
     }
 
     if (!month) {
       return NextResponse.json({ error: 'month required' }, { status: 400 })
     }
 
-    await savePromoMonthlyInsight(month, concept_tags ?? [], summary ?? '')
+    await savePromoMonthlyInsight(month, concept_tags ?? [], summary ?? '', action_points ?? [])
     return NextResponse.json({ ok: true })
   } catch (e) {
     console.error(e)

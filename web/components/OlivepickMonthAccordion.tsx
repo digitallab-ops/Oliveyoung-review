@@ -17,6 +17,7 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
   const [editing, setEditing] = useState(false)
   const [editTags, setEditTags] = useState('')
   const [editSummary, setEditSummary] = useState('')
+  const [editActionPoints, setEditActionPoints] = useState('')
   const [saving, setSaving] = useState(false)
   const [history, setHistory] = useState<PromoInsightHistoryEntry[] | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -38,6 +39,7 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
         month: month.month,
         concept_tags: data.concept_tags,
         summary: data.summary,
+        action_points: data.action_points ?? [],
         generated_at: new Date().toISOString(),
       }
       setInsight(newInsight)
@@ -54,23 +56,26 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
   function handleEditStart() {
     setEditTags(insight?.concept_tags.join(', ') ?? '')
     setEditSummary(insight?.summary ?? '')
+    setEditActionPoints(insight?.action_points.join('\n') ?? '')
     setEditing(true)
   }
 
   async function handleSave() {
     setSaving(true)
     const tags = editTags.split(',').map(t => t.trim()).filter(Boolean)
+    const actionPoints = editActionPoints.split('\n').map(t => t.trim()).filter(Boolean)
     try {
       const res = await fetch('/api/promo-insight', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: month.month, concept_tags: tags, summary: editSummary }),
+        body: JSON.stringify({ month: month.month, concept_tags: tags, summary: editSummary, action_points: actionPoints }),
       })
       if (!res.ok) throw new Error()
       const updated: PromoMonthlyInsight = {
         month: month.month,
         concept_tags: tags,
         summary: editSummary,
+        action_points: actionPoints,
         generated_at: insight?.generated_at ?? null,
       }
       setInsight(updated)
@@ -186,7 +191,8 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
             )}
 
             {insight && !editing && (
-              <div className="space-y-2">
+              <div className="space-y-3">
+                {/* 컨셉 태그 */}
                 <div className="flex items-start gap-2 flex-wrap">
                   {insight.concept_tags.map(tag => (
                     <span key={tag} className="text-xs font-medium text-accent-fg bg-accent-bg border border-accent-border px-2 py-0.5 rounded">
@@ -195,14 +201,35 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
                   ))}
                   <button
                     onClick={handleEditStart}
-                    className="text-[10px] text-text-tertiary hover:text-text-secondary underline ml-auto"
+                    className="text-[10px] text-text-tertiary hover:text-text-secondary underline ml-auto shrink-0"
                   >
                     수정
                   </button>
                 </div>
+
+                {/* 기획 요약 */}
                 {insight.summary && (
-                  <p className="text-xs text-text-secondary leading-relaxed">{insight.summary}</p>
+                  <div className="bg-background rounded-md px-3 py-2.5">
+                    <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest mb-1.5">기획 요약</p>
+                    <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-line">{insight.summary}</p>
+                  </div>
                 )}
+
+                {/* 대응 인사이트 */}
+                {insight.action_points && insight.action_points.length > 0 && (
+                  <div className="bg-accent-bg border border-accent-border rounded-md px-3 py-2.5">
+                    <p className="text-[10px] font-semibold text-accent uppercase tracking-widest mb-2">대응 인사이트</p>
+                    <ul className="space-y-1.5">
+                      {insight.action_points.map((pt, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-accent-fg leading-snug">
+                          <span className="text-accent font-bold shrink-0 mt-0.5">·</span>
+                          <span>{pt}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {insight.generated_at && (
                   <p className="text-[10px] text-text-tertiary">
                     {new Date(insight.generated_at).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 생성
@@ -224,12 +251,22 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-text-tertiary">요약</label>
+                  <label className="text-[10px] text-text-tertiary">기획 요약</label>
                   <textarea
                     value={editSummary}
                     onChange={e => setEditSummary(e.target.value)}
+                    rows={3}
+                    className="w-full mt-0.5 text-xs border border-border rounded px-2 py-1 bg-background text-text-primary focus:outline-none focus:border-accent resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-tertiary">대응 인사이트 (줄바꿈으로 구분)</label>
+                  <textarea
+                    value={editActionPoints}
+                    onChange={e => setEditActionPoints(e.target.value)}
                     rows={4}
                     className="w-full mt-0.5 text-xs border border-border rounded px-2 py-1 bg-background text-text-primary focus:outline-none focus:border-accent resize-none"
+                    placeholder="각 항목을 줄바꿈으로 구분해서 입력"
                   />
                 </div>
                 <div className="flex gap-2 items-center">
@@ -280,18 +317,27 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
                       <p className="text-[10px] text-text-tertiary">이전 이력이 없습니다</p>
                     )}
                     {!historyLoading && history && history.length > 0 && history.map(h => (
-                      <div key={h.id} className="bg-background rounded p-2.5 space-y-1.5">
-                        <div className="flex flex-wrap gap-1">
+                      <div key={h.id} className="bg-background rounded p-2.5 space-y-1.5 border border-border/50">
+                        <div className="flex flex-wrap gap-1 items-center">
                           {h.concept_tags.map(tag => (
                             <span key={tag} className="text-[10px] text-text-tertiary bg-border/40 border border-border px-1.5 py-0.5 rounded">
                               {tag}
                             </span>
                           ))}
-                          <span className="ml-auto text-[10px] text-text-tertiary">
+                          <span className="ml-auto text-[10px] text-text-tertiary shrink-0">
                             {new Date(h.saved_at).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-[11px] text-text-tertiary leading-relaxed">{h.summary}</p>
+                        {h.summary && <p className="text-[11px] text-text-tertiary leading-relaxed">{h.summary}</p>}
+                        {h.action_points?.length > 0 && (
+                          <ul className="space-y-0.5 pt-0.5">
+                            {h.action_points.map((pt, i) => (
+                              <li key={i} className="text-[11px] text-text-tertiary flex items-start gap-1.5">
+                                <span className="shrink-0">·</span><span>{pt}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -184,6 +184,7 @@ export interface PromoMonthlyInsight {
   month: string
   concept_tags: string[]
   summary: string
+  action_points: string[]
   generated_at: string | null
 }
 
@@ -192,6 +193,7 @@ export interface PromoInsightHistoryEntry {
   month: string
   concept_tags: string[]
   summary: string
+  action_points: string[]
   saved_at: string
 }
 

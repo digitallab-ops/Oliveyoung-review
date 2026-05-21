@@ -286,7 +286,7 @@ export async function generateProductTopicInsights(
 export async function generateOlivepickInsight(
   month: string,
   products: { name: string; category?: string | null }[]
-): Promise<{ concept_tags: string[]; summary: string } | null> {
+): Promise<{ concept_tags: string[]; summary: string; action_points: string[] } | null> {
   if (!process.env.ANTHROPIC_API_KEY || products.length === 0) return null
 
   const nameList = products
@@ -297,18 +297,23 @@ export async function generateOlivepickInsight(
   try {
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
-      system: '당신은 올리브영 MD 전문가입니다. JSON만 출력하세요. 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
+      max_tokens: 1000,
+      system: '당신은 올리브영 입점 브랜드의 전략 담당자입니다. JSON만 출력하세요. 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
       messages: [{
         role: 'user',
-        content: `다음은 ${month} 올영픽 큐레이션 상품 목록입니다 (상품명 (카테고리) 형식):\n\n${nameList}\n\n올리브영 MD 관점에서 위 상품 목록을 심층 분석하여 다음을 제공하세요:\n1. concept_tags: 이달 올영픽의 핵심 기획 컨셉 태그 최대 7개 (예: "1+1 기획", "봄 시즌", "굿즈 증정", "포켓몬 콜라보", "선케어 강화", "비타민/영양제", "데일리케어")\n2. summary: 이달 올영픽의 기획 방향을 3~4문장으로 구체적으로 분석. 주요 카테고리 구성 및 비중, 핵심 프로모션 방식(1+1·굿즈·콜라보 등), 시즌/트렌드 반영 여부, 입점 브랜드 전략 관점의 시사점을 포함하세요.\n\n반드시 다음 JSON 형식으로만 출력:\n{"concept_tags":["..."],"summary":"..."}`,
+        content: `다음은 ${month} 올영픽 큐레이션 상품 목록입니다 (상품명 (카테고리) 형식):\n\n${nameList}\n\n위 상품 목록을 분석하여 다음 세 가지를 제공하세요:\n\n1. concept_tags: 이달 올영픽의 핵심 기획 컨셉 태그 최대 7개 (짧고 명확하게, 예: "포켓몬 콜라보", "1+1 기획", "선케어 강화", "굿즈 증정", "건강식품 확대")\n\n2. summary: 이달 올영픽의 기획 방향을 2~3문장으로 요약. 어떤 카테고리/테마가 중심이고, 어떤 프로모션 방식(1+1·콜라보·굿즈 등)이 사용됐는지 서술.\n\n3. action_points: 우리 브랜드(셀퓨전씨)가 이 기획에서 얻어야 할 대응 인사이트 3~5개. 각 항목은 "무엇을 해야 한다"는 실행 가능한 형태로 작성. 예시: "선케어 라인업 올영픽 입점 제안 적극 검토", "포켓몬 굿즈 기획 성공 사례 → 당사 IP 콜라보 기획 검토", "1+1 번들 구성 상품 기획팀 공유 필요"\n\n반드시 다음 JSON 형식으로만 출력:\n{"concept_tags":["..."],"summary":"...","action_points":["...","..."]}`,
       }],
     })
     const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
     if (!text) return null
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return null
-    return JSON.parse(jsonMatch[0])
+    const parsed = JSON.parse(jsonMatch[0])
+    return {
+      concept_tags: parsed.concept_tags ?? [],
+      summary: parsed.summary ?? '',
+      action_points: parsed.action_points ?? [],
+    }
   } catch (e) {
     console.error(`Olivepick insight failed for ${month}:`, e)
     return null

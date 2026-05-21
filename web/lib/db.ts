@@ -860,9 +860,9 @@ export async function getOlivepickHistory(): Promise<OlivepickMonth[]> {
     `)
 
     const insightRows = await query<{
-      month: string; concept_tags: string[]; summary: string; generated_at: string
+      month: string; concept_tags: string[]; summary: string; action_points: string[]; generated_at: string
     }>(`
-      SELECT month, concept_tags, summary, generated_at::text
+      SELECT month, concept_tags, summary, action_points, generated_at::text
       FROM promo_monthly_insights
       WHERE month = ANY($1)
     `, [months])
@@ -870,14 +870,16 @@ export async function getOlivepickHistory(): Promise<OlivepickMonth[]> {
 
     const monthMap = new Map<string, OlivepickMonth>()
     for (const m of months) {
+      const ins = insightMap.get(m)
       monthMap.set(m, {
         month: m, products: [], category_counts: [],
         our_count: 0, total_count: 0,
-        insight: insightMap.has(m) ? {
+        insight: ins ? {
           month: m,
-          concept_tags: insightMap.get(m)!.concept_tags,
-          summary: insightMap.get(m)!.summary,
-          generated_at: insightMap.get(m)!.generated_at ?? null,
+          concept_tags: ins.concept_tags,
+          summary: ins.summary,
+          action_points: ins.action_points ?? [],
+          generated_at: ins.generated_at ?? null,
         } : null,
       })
     }
@@ -942,46 +944,48 @@ export async function getTodayDealHistory(from: string, to: string): Promise<Tod
 export async function getPromoMonthlyInsight(month: string): Promise<PromoMonthlyInsight | null> {
   try {
     const rows = await query<{
-      month: string; concept_tags: string[]; summary: string; generated_at: string
+      month: string; concept_tags: string[]; summary: string; action_points: string[]; generated_at: string
     }>(`
-      SELECT month, concept_tags, summary, generated_at::text
+      SELECT month, concept_tags, summary, action_points, generated_at::text
       FROM promo_monthly_insights WHERE month = $1
     `, [month])
     if (!rows[0]) return null
-    return { month: rows[0].month, concept_tags: rows[0].concept_tags, summary: rows[0].summary, generated_at: rows[0].generated_at ?? null }
+    const r = rows[0]
+    return { month: r.month, concept_tags: r.concept_tags, summary: r.summary, action_points: r.action_points ?? [], generated_at: r.generated_at ?? null }
   } catch {
     return null
   }
 }
 
-export async function savePromoMonthlyInsight(month: string, concept_tags: string[], summary: string): Promise<void> {
+export async function savePromoMonthlyInsight(month: string, concept_tags: string[], summary: string, action_points: string[] = []): Promise<void> {
   await query(`
-    INSERT INTO promo_monthly_insights_history (month, concept_tags, summary, saved_at)
-    SELECT month, concept_tags, summary, NOW()
+    INSERT INTO promo_monthly_insights_history (month, concept_tags, summary, action_points, saved_at)
+    SELECT month, concept_tags, summary, action_points, NOW()
     FROM promo_monthly_insights
     WHERE month = $1
   `, [month])
   await query(`
-    INSERT INTO promo_monthly_insights (month, concept_tags, summary, generated_at, updated_at)
-    VALUES ($1, $2, $3, NOW(), NOW())
+    INSERT INTO promo_monthly_insights (month, concept_tags, summary, action_points, generated_at, updated_at)
+    VALUES ($1, $2, $3, $4, NOW(), NOW())
     ON CONFLICT (month) DO UPDATE SET
-      concept_tags = EXCLUDED.concept_tags,
-      summary      = EXCLUDED.summary,
-      updated_at   = NOW()
-  `, [month, concept_tags, summary])
+      concept_tags  = EXCLUDED.concept_tags,
+      summary       = EXCLUDED.summary,
+      action_points = EXCLUDED.action_points,
+      updated_at    = NOW()
+  `, [month, concept_tags, summary, action_points])
 }
 
-export async function getPromoInsightHistory(month: string): Promise<{ id: number; month: string; concept_tags: string[]; summary: string; saved_at: string }[]> {
+export async function getPromoInsightHistory(month: string): Promise<{ id: number; month: string; concept_tags: string[]; summary: string; action_points: string[]; saved_at: string }[]> {
   try {
     const rows = await query<{
-      id: number; month: string; concept_tags: string[]; summary: string; saved_at: string
+      id: number; month: string; concept_tags: string[]; summary: string; action_points: string[]; saved_at: string
     }>(`
-      SELECT id, month, concept_tags, summary, saved_at::text
+      SELECT id, month, concept_tags, summary, action_points, saved_at::text
       FROM promo_monthly_insights_history
       WHERE month = $1
       ORDER BY saved_at DESC
     `, [month])
-    return rows
+    return rows.map(r => ({ ...r, action_points: r.action_points ?? [] }))
   } catch {
     return []
   }
