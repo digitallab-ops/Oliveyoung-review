@@ -3,8 +3,8 @@ import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, Reviews
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 5,
-  idleTimeoutMillis: 30000,
+  max: 2,
+  idleTimeoutMillis: 10000,
 })
 
 async function query<T>(sql: string, params?: unknown[]): Promise<T[]> {
