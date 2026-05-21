@@ -145,23 +145,23 @@ def fetch_all_hotdeal(session, today_str: str, flt_condition: str) -> list[dict]
     return all_items
 
 
-def save_items(conn, ptype: str, items: list[dict], our_goods: set):
+def save_items(conn, ptype: str, items: list[dict], our_goods: set, today: date):
     with conn.cursor() as cur:
         cur.execute(
-            'DELETE FROM promo_items WHERE promo_type = %s AND collected_at = CURRENT_DATE',
-            (ptype,)
+            'DELETE FROM promo_items WHERE promo_type = %s AND collected_at = %s',
+            (ptype, today)
         )
         for rank, item in enumerate(items, 1):
             is_ours = item['goods_no'] in our_goods
             cur.execute("""
                 INSERT INTO promo_items
                     (promo_type, collected_at, rank_position, goods_no, goods_name, is_ours)
-                VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (promo_type, collected_at, goods_no) DO UPDATE SET
                     rank_position = EXCLUDED.rank_position,
                     goods_name    = EXCLUDED.goods_name,
                     is_ours       = EXCLUDED.is_ours
-            """, (ptype, rank, item['goods_no'], item['name'], is_ours))
+            """, (ptype, today, rank, item['goods_no'], item['name'], is_ours))
 
     our_hits = [(i + 1, it) for i, it in enumerate(items) if it['goods_no'] in our_goods]
     if our_hits:
@@ -204,7 +204,7 @@ def run():
             items = fetch_olivepick(session)
             print(f'  총 {len(items)}개 상품')
             if items:
-                save_items(conn, 'olivepick', items, our_goods)
+                save_items(conn, 'olivepick', items, our_goods, today)
             else:
                 print('  경고: 상품 없음 — dispCatNo 확인 필요')
         except Exception as e:
@@ -218,7 +218,7 @@ def run():
                 items = fetch_all_hotdeal(session, today_str, flt_cond)
                 print(f'  총 {len(items)}개 상품')
                 if items:
-                    save_items(conn, ptype, items, our_goods)
+                    save_items(conn, ptype, items, our_goods, today)
                 else:
                     print('  경고: 상품 없음')
             except Exception as e:
