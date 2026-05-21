@@ -23,6 +23,7 @@ export default function TodayDealTab() {
   const [from, setFrom] = useState(defaultFrom)
   const [to, setTo]     = useState(defaultTo)
   const [search, setSearch] = useState('')
+  const [showOursOnly, setShowOursOnly] = useState(false)
   const [data, setData] = useState<TodayDealHistoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [openDates, setOpenDates] = useState<Set<string>>(new Set())
@@ -43,10 +44,14 @@ export default function TodayDealTab() {
 
   const filteredItems = useMemo(() => {
     if (!data) return []
-    if (!search.trim()) return data.items
-    const q = search.trim().toLowerCase()
-    return data.items.filter(i => i.goods_name.toLowerCase().includes(q))
-  }, [data, search])
+    let items = data.items
+    if (showOursOnly) items = items.filter(i => i.is_ours)
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      items = items.filter(i => i.goods_name.toLowerCase().includes(q))
+    }
+    return items
+  }, [data, search, showOursOnly])
 
   const freqTable = useMemo(() => {
     if (!data) return []
@@ -107,6 +112,19 @@ export default function TodayDealTab() {
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="상품명으로 검색..."
             className="text-sm border border-border rounded px-2 py-1.5 bg-surface text-text-primary focus:outline-none focus:border-accent" />
+        </div>
+        <div className="flex flex-col gap-1 justify-end">
+          <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest opacity-0 select-none">.</label>
+          <button
+            onClick={() => setShowOursOnly(v => !v)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
+              showOursOnly
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                : 'bg-surface border-border text-text-secondary hover:border-accent hover:text-accent'
+            }`}
+          >
+            자사만 보기
+          </button>
         </div>
         {data && (
           <span className="text-xs text-text-tertiary pb-1.5">

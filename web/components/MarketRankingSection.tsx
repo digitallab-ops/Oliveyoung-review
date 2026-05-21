@@ -2,7 +2,7 @@
 
 import type { MarketCategoryData, MarketRankingEntry } from '@/lib/types'
 import SectionDivider from '@/components/SectionDivider'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 interface Props {
   data: MarketCategoryData[]
@@ -154,6 +154,15 @@ function CategoryPanel({ cat }: { cat: MarketCategoryData }) {
 }
 
 export default function MarketRankingSection({ data, aiInsight }: Props) {
+  const [showOursOnly, setShowOursOnly] = useState(false)
+
+  const displayData = useMemo(() => {
+    if (!showOursOnly) return data
+    return data
+      .map(cat => ({ ...cat, entries: cat.entries.filter(e => e.is_ours) }))
+      .filter(cat => cat.entries.length > 0)
+  }, [data, showOursOnly])
+
   if (data.length === 0) return null
 
   const fallbackInsights = generateInsights(data)
@@ -165,6 +174,16 @@ export default function MarketRankingSection({ data, aiInsight }: Props) {
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold text-text-primary">올리브영 시장 전체 순위</h2>
           <span className="text-sm text-text-tertiary">카테고리 Top 100</span>
+          <button
+            onClick={() => setShowOursOnly(v => !v)}
+            className={`ml-auto text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
+              showOursOnly
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                : 'bg-surface border-border text-text-secondary hover:border-accent hover:text-accent'
+            }`}
+          >
+            자사만 보기
+          </button>
         </div>
       </div>
 
@@ -201,7 +220,7 @@ export default function MarketRankingSection({ data, aiInsight }: Props) {
 
       {/* 카테고리별 3열 그리드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {data.map(cat => (
+        {displayData.map(cat => (
           <CategoryPanel key={cat.category_name} cat={cat} />
         ))}
       </div>
