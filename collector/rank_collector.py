@@ -75,7 +75,7 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
 
 
 def run():
-    rank_hour = (datetime.now().hour // 3) * 3  # 0,3,6,9,12,15,18,21
+    rank_hour = datetime.now().hour  # 0~23
     print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()} {rank_hour:02d}시) ===\n")
 
     conn = get_conn()

@@ -3,7 +3,7 @@ name: Collect Rank (3h interval)
 
 on:
   schedule:
-    - cron: '0 0,3,6,9,12,15,18,21 * * *'  # every 3h UTC = every 3h KST
+    - cron: '0 * * * *'  # every 1h UTC
   workflow_dispatch:
 
 jobs:
