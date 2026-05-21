@@ -171,12 +171,21 @@ export default function OlivepickMonthAccordion({ month, defaultOpen = false, on
                       {tag}
                     </span>
                   ))}
-                  <button
-                    onClick={handleEditStart}
-                    className="text-[10px] text-text-tertiary hover:text-text-secondary underline ml-auto"
-                  >
-                    수정
-                  </button>
+                  <div className="ml-auto flex gap-2 shrink-0">
+                    <button
+                      onClick={handleGenerate}
+                      disabled={generating}
+                      className="text-[10px] text-text-tertiary hover:text-text-secondary underline disabled:opacity-50"
+                    >
+                      {generating ? '생성 중...' : '재생성'}
+                    </button>
+                    <button
+                      onClick={handleEditStart}
+                      className="text-[10px] text-text-tertiary hover:text-text-secondary underline"
+                    >
+                      수정
+                    </button>
+                  </div>
                 </div>
                 {insight.summary && (
                   <p className="text-xs text-text-secondary leading-relaxed">{insight.summary}</p>
