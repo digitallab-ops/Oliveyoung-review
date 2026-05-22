@@ -1,9 +1,6 @@
-# re-activate schedule 2026-05-21
 name: Collect Promo
 
 on:
-  schedule:
-    - cron: '0 23 * * *'  # 08:00 KST
   workflow_dispatch:
 
 jobs:

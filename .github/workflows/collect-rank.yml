@@ -1,9 +1,6 @@
-# re-activate schedule 2026-05-21
-name: Collect Rank (3h interval)
+name: Collect Rank
 
 on:
-  schedule:
-    - cron: '50 * * * *'  # every 1h, fire at :50 to account for GHA delay (~10min)
   workflow_dispatch:
 
 jobs:
