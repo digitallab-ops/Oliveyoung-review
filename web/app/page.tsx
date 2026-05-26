@@ -1,4 +1,4 @@
-import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankings, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights } from '@/lib/db'
+import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights } from '@/lib/db'
 import { generateMarketInsight, generateReviewInsight, generateDailyBrief } from '@/lib/ai'
 import KPIStrip from '@/components/KPIStrip'
 import DashboardTabs from '@/components/DashboardTabs'
@@ -27,7 +27,7 @@ function formatLastUpdated(ts: string | null): string {
 }
 
 export default async function Page() {
-  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, insightsHistory, rankings, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords] = await Promise.all([
+  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords] = await Promise.all([
     getStats(),
     getInsights(),
     getScoreDist(),
@@ -36,7 +36,7 @@ export default async function Page() {
     getProductNegatives(),
     getProductSummaries(),
     getInsightsHistory(),
-    getProductRankings(),
+    getProductRankingsByMode(),
     getMarketRankings(),
     getNewProducts(),
     getNegativeAlerts(),
@@ -111,7 +111,8 @@ export default async function Page() {
           productStats={productStats}
           summaries={summaries}
           insightsHistory={insightsHistory}
-          rankings={rankings}
+          rankingsByMode={{ best: rankingsData.best, avg: rankingsData.avg, weekly: rankingsData.weekly }}
+          rankingsLastCollected={rankingsData.lastCollected}
           marketRankings={marketRankings}
           aiInsight={marketInsight}
           reviewInsight={reviewInsight}

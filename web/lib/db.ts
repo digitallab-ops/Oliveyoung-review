@@ -386,6 +386,75 @@ export async function getProductSummaries(): Promise<ProductSummary[]> {
   }
 }
 
+export async function getProductRankingsByMode(): Promise<{
+  best: ProductRankingData[]
+  avg: ProductRankingData[]
+  weekly: ProductRankingData[]
+  lastCollected: Record<string, string>
+}> {
+  try {
+    const dailyRows = await query<{
+      goods_no: string; goods_name: string; category_name: string
+      date: string; best_rank: string; avg_rank: string
+    }>(`
+      SELECT mr.goods_no, p.goods_name, mr.category_name,
+             mr.rank_date::text AS date,
+             MIN(mr.rank_position) AS best_rank,
+             ROUND(AVG(mr.rank_position)) AS avg_rank
+      FROM market_rankings mr
+      JOIN products p ON mr.goods_no = p.goods_no
+      WHERE mr.rank_date >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY mr.rank_date, mr.goods_no, p.goods_name, mr.category_name
+      ORDER BY mr.category_name, mr.goods_no, mr.rank_date
+    `)
+
+    const weeklyRows = await query<{
+      goods_no: string; goods_name: string; category_name: string
+      date: string; rank: string
+    }>(`
+      SELECT mr.goods_no, p.goods_name, mr.category_name,
+             DATE_TRUNC('week', mr.rank_date)::date::text AS date,
+             ROUND(AVG(mr.rank_position)) AS rank
+      FROM market_rankings mr
+      JOIN products p ON mr.goods_no = p.goods_no
+      WHERE mr.rank_date >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY DATE_TRUNC('week', mr.rank_date), mr.goods_no, p.goods_name, mr.category_name
+      ORDER BY mr.category_name, mr.goods_no, date
+    `)
+
+    const lastRows = await query<{
+      category_name: string; last_date: string; rank_hour: number
+    }>(`
+      SELECT DISTINCT ON (category_name)
+             category_name, rank_date::text AS last_date, rank_hour
+      FROM market_rankings
+      ORDER BY category_name, rank_date DESC, rank_hour DESC
+    `)
+
+    const toData = (rows: { goods_no: string; goods_name: string; category_name: string; date: string; rank: string }[]): ProductRankingData[] => {
+      const map = new Map<string, ProductRankingData>()
+      for (const r of rows) {
+        const key = `${r.goods_no}__${r.category_name}`
+        if (!map.has(key)) map.set(key, { goods_no: r.goods_no, goods_name: r.goods_name, category_name: r.category_name, history: [] })
+        map.get(key)!.history.push({ date: r.date.slice(0, 10), rank: Number(r.rank) })
+      }
+      return Array.from(map.values())
+    }
+
+    const lastCollected: Record<string, string> = {}
+    for (const r of lastRows) lastCollected[r.category_name] = `${r.last_date} ${r.rank_hour}시`
+
+    return {
+      best:   toData(dailyRows.map(r => ({ ...r, rank: r.best_rank }))),
+      avg:    toData(dailyRows.map(r => ({ ...r, rank: r.avg_rank }))),
+      weekly: toData(weeklyRows),
+      lastCollected,
+    }
+  } catch {
+    return { best: [], avg: [], weekly: [], lastCollected: {} }
+  }
+}
+
 export async function getProductRankings(): Promise<ProductRankingData[]> {
   try {
     const rows = await query<{

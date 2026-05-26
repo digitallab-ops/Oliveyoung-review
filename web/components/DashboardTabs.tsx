@@ -7,6 +7,7 @@ import type {
   MarketCategoryData, NewProductData, NegativeAlertData,
   OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData
 } from '@/lib/types'
+
 import InsightCards from '@/components/InsightCards'
 import NegativeInsights from '@/components/NegativeInsights'
 import StatsAccordion from '@/components/StatsAccordion'
@@ -31,7 +32,8 @@ interface Props {
   productStats: ProductStats[]
   summaries: ProductSummary[]
   insightsHistory: InsightsSnapshot[]
-  rankings: ProductRankingData[]
+  rankingsByMode: { best: ProductRankingData[]; avg: ProductRankingData[]; weekly: ProductRankingData[] }
+  rankingsLastCollected: Record<string, string>
   marketRankings: MarketCategoryData[]
   aiInsight: string
   reviewInsight: string
@@ -57,7 +59,8 @@ type TabId = typeof TABS[number]['id']
 
 export default function DashboardTabs({
   insights, timeSeries, negativeData, scoreDist, productStats,
-  summaries, insightsHistory, rankings, marketRankings, aiInsight, reviewInsight, dailyBrief,
+  summaries, insightsHistory, rankingsByMode, rankingsLastCollected,
+  marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
@@ -162,11 +165,9 @@ export default function DashboardTabs({
             <TodayRankingTimeline data={todayTimeline} />
 
             {/* 셀퓨전씨 자사 순위 */}
-            {rankings.length > 0 && (
-              <RankingSection data={rankings} />
-            )}
+            <RankingSection dataByMode={rankingsByMode} lastCollected={rankingsLastCollected} />
 
-            {rankings.length === 0 && !dailyBrief && (
+            {rankingsByMode.best.length === 0 && !dailyBrief && (
               <div className="border border-dashed border-border rounded-lg px-6 py-12 text-center">
                 <p className="text-sm text-text-secondary">오늘 수집 데이터가 없어요</p>
                 <p className="text-xs text-text-tertiary mt-1">매일 오전 6시 자동 수집됩니다</p>
