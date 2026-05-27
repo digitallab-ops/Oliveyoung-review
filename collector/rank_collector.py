@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import re
+import urllib.request
 from datetime import date, datetime
 
 try:
@@ -37,6 +38,23 @@ CATEGORIES = [
 ]
 
 ROWS_PER_PAGE = 100
+
+
+def revalidate_vercel():
+    app_url = os.getenv('APP_URL', '').rstrip('/')
+    if not app_url:
+        return
+    try:
+        req = urllib.request.Request(
+            f'{app_url}/api/revalidate',
+            data=b'{}',
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        urllib.request.urlopen(req, timeout=10)
+        print('  Vercel 캐시 초기화 완료')
+    except Exception as e:
+        print(f'  Vercel 캐시 초기화 실패: {e}')
 
 
 def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
@@ -130,6 +148,7 @@ def run():
             time.sleep(3)
 
         print(f"\n=== 완료 - {total_saved}개 시장 순위 저장 ===")
+        revalidate_vercel()
 
     finally:
         conn.close()

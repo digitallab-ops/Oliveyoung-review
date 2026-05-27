@@ -1,6 +1,7 @@
 import os
 import sys
 import requests
+import urllib.request
 import time
 import random
 from datetime import datetime
@@ -31,6 +32,23 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from db.schema import init_db, upsert_products, insert_review, get_existing_review_ids, get_all_products, get_conn, snapshot_insights
 
 BRAND_CODE = os.environ.get("BRAND_CODE", "A001854")
+
+
+def revalidate_vercel():
+    app_url = os.getenv('APP_URL', '').rstrip('/')
+    if not app_url:
+        return
+    try:
+        req = urllib.request.Request(
+            f'{app_url}/api/revalidate',
+            data=b'{}',
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        urllib.request.urlopen(req, timeout=10)
+        print('  Vercel 캐시 초기화 완료')
+    except Exception as e:
+        print(f'  Vercel 캐시 초기화 실패: {e}')
 
 HEADERS_WEB = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
@@ -230,6 +248,7 @@ def run():
         print("  → 인사이트 스냅샷 저장 중...")
         snapshot_insights(total_new, conn=conn)
         print("  → 스냅샷 저장 완료")
+        revalidate_vercel()
     finally:
         conn.close()
 
