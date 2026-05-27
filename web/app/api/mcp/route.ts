@@ -7,7 +7,7 @@
  * 인증: MCP_API_KEY 환경변수 설정 시 Authorization: Bearer <key> 헤더 필요
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { z } from 'zod'
 import { NextRequest } from 'next/server'
 import {
@@ -120,8 +120,8 @@ async function handle(req: NextRequest): Promise<Response> {
   }
 
   const server = buildMcpServer()
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless — 서버리스 환경 최적
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
   })
 
   await server.connect(transport)
