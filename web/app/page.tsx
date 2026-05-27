@@ -61,9 +61,9 @@ export default async function Page() {
   const productTopics = await safe(getProductTopicInsights, [])
 
   const [marketInsight, reviewInsight, dailyBrief] = await Promise.all([
-    withTimeout(marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''), 25000, ''),
-    withTimeout(generateReviewInsight(insights, negativeData), 25000, ''),
-    withTimeout(marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''), 25000, ''),
+    withTimeout(marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''), 8000, ''),
+    withTimeout(generateReviewInsight(insights, negativeData), 8000, ''),
+    withTimeout(marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''), 8000, ''),
   ])
 
   return (
