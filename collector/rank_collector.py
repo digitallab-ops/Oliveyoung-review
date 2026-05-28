@@ -3,7 +3,7 @@ import sys
 import time
 import re
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 try:
     from curl_cffi import requests as cf_requests
@@ -97,8 +97,9 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
 
 
 def run():
-    rank_hour = datetime.now().hour  # 0~23
-    print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()} {rank_hour:02d}시) ===\n")
+    rank_hour = datetime.now(timezone.utc).hour  # DB(UTC)와 맞추기 위해 UTC 기준
+    kst_hour = datetime.now().hour
+    print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()} {kst_hour:02d}시 KST / UTC {rank_hour:02d}시) ===\n")
 
     conn = get_conn()
     conn.autocommit = True

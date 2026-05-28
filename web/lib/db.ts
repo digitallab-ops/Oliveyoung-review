@@ -39,7 +39,7 @@ export async function getStats(): Promise<Stats> {
   const [[rankRow], [promoRow]] = await Promise.all([
     query<{ ts: string | null }>(`
       SELECT to_char(
-        (rank_date + (rank_hour || ' hours')::interval) AT TIME ZONE 'Asia/Seoul',
+        rank_date + (rank_hour || ' hours')::interval,
         'YYYY-MM-DD"T"HH24:MI:SS"Z"'
       ) AS ts
       FROM market_rankings
@@ -465,7 +465,10 @@ export async function getProductRankingsByMode(): Promise<{
     }
 
     const lastCollected: Record<string, string> = {}
-    for (const r of lastRows) lastCollected[r.category_name] = `${r.last_date} ${r.rank_hour}시`
+    for (const r of lastRows) {
+      const kstH = (Number(r.rank_hour) + 9) % 24
+      lastCollected[r.category_name] = `${r.last_date} ${kstH}시`
+    }
 
     return {
       best:   toData(dailyRows.map(r => ({ ...r, rank: r.best_rank }))),
