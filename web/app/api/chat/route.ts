@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { NextResponse } from 'next/server'
 import {
   getStats, getMarketRankings, getPromoStatus, getNegativeAlerts,
@@ -7,7 +7,7 @@ import {
 
 export const maxDuration = 60
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const SYSTEM = `당신은 셀퓨전씨 올리브영 인사이트 어시스턴트입니다.
 
@@ -36,58 +36,82 @@ const SYSTEM = `당신은 셀퓨전씨 올리브영 인사이트 어시스턴트
 5. 수치 나열보다 "왜 중요한지, 뭘 해야 하는지" 중심으로.
 6. 한국어로 답변.`
 
-const TOOLS: Anthropic.Tool[] = [
+const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
-    name: 'get_stats',
-    description: '셀퓨전씨 브랜드 전체 현황. 총 리뷰 수, 평균 별점, 5점 비율, 재구매율, 상품 수, 마지막 수집 시각. "전체 요약", "현황 알려줘", "리뷰 총 몇 개야" 같은 질문에 사용.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_market_rankings',
-    description: '올리브영 카테고리별 베스트 순위 Top 20. 셀퓨전씨 상품은 is_ours=true로 표시됨. "순위", "랭킹", "몇 위", "시장 현황" 질문에 사용. 카테고리명: 전체, 스킨케어, 마스크팩, 클렌징, 선케어, 더모 코스메틱, 바디케어, 맨즈에딧.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        category: { type: 'string', description: '카테고리명. 예: "선케어", "스킨케어". 전체 보려면 빈 문자열.' },
-      },
-      required: [],
+    type: 'function',
+    function: {
+      name: 'get_stats',
+      description: '셀퓨전씨 브랜드 전체 현황. 총 리뷰 수, 평균 별점, 5점 비율, 재구매율, 상품 수, 마지막 수집 시각. "전체 요약", "현황 알려줘", "리뷰 총 몇 개야" 같은 질문에 사용.',
+      parameters: { type: 'object', properties: {}, required: [] },
     },
   },
   {
-    name: 'get_promo_status',
-    description: '오늘 기준 올영픽·오늘의 특가 입점 현황과 셀퓨전씨 상품 포함 여부/순위. "프로모션", "올영픽", "특가", "기획전" 질문에 사용.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_negative_alerts',
-    description: '최근 7일간 부정 리뷰(별점 1~2점)가 전주 대비 50% 이상 급증한 상품 목록과 주요 키워드. "부정 리뷰", "컴플레인", "문제", "이슈", "안 좋은 반응" 질문에 사용.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_product_stats',
-    description: '셀퓨전씨 전 상품의 리뷰 수, 평균 별점, 재구매율, 5점 리뷰 수. 상품 이름으로 goods_no를 찾을 때도 이 도구를 먼저 호출해 목록에서 해당 상품을 찾으세요.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_insights',
-    description: '긍정/부정 키워드 Top 8과 피부 타입 분포. goods_no를 지정하면 해당 상품 기준, 미지정 시 전체 브랜드 기준. 특정 상품 분석 시 반드시 get_product_stats로 goods_no를 먼저 확인 후 호출.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        goods_no: { type: 'string', description: '특정 상품 번호 (get_product_stats에서 조회). 전체 브랜드 기준이면 빈 문자열.' },
+    type: 'function',
+    function: {
+      name: 'get_market_rankings',
+      description: '올리브영 카테고리별 베스트 순위 Top 20. 셀퓨전씨 상품은 is_ours=true로 표시됨. "순위", "랭킹", "몇 위", "시장 현황" 질문에 사용. 카테고리명: 전체, 스킨케어, 마스크팩, 클렌징, 선케어, 더모 코스메틱, 바디케어, 맨즈에딧.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: '카테고리명. 예: "선케어", "스킨케어". 전체 보려면 빈 문자열.' },
+        },
+        required: [],
       },
-      required: [],
     },
   },
   {
-    name: 'get_new_products',
-    description: '최근 30일 내 처음 리뷰가 등록된 신규/신상 상품. 일평균 리뷰 속도와 긍정·부정 비율. "신상", "새로 나온", "신규 출시" 질문에 사용.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_promo_status',
+      description: '오늘 기준 올영픽·오늘의 특가 입점 현황과 셀퓨전씨 상품 포함 여부/순위. "프로모션", "올영픽", "특가", "기획전" 질문에 사용.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_today_ranking',
-    description: '오늘 시간대별 셀퓨전씨 자사 상품의 순위 타임라인. 카테고리별로 몇 시에 몇 위였는지 확인. "오늘 순위 변화", "몇 시에 몇 위", "타임라인" 질문에 사용.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_negative_alerts',
+      description: '최근 7일간 부정 리뷰(별점 1~2점)가 전주 대비 50% 이상 급증한 상품 목록과 주요 키워드. "부정 리뷰", "컴플레인", "문제", "이슈", "안 좋은 반응" 질문에 사용.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_product_stats',
+      description: '셀퓨전씨 전 상품의 리뷰 수, 평균 별점, 재구매율, 5점 리뷰 수. 상품 이름으로 goods_no를 찾을 때도 이 도구를 먼저 호출해 목록에서 해당 상품을 찾으세요.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_insights',
+      description: '긍정/부정 키워드 Top 8과 피부 타입 분포. goods_no를 지정하면 해당 상품 기준, 미지정 시 전체 브랜드 기준. 특정 상품 분석 시 반드시 get_product_stats로 goods_no를 먼저 확인 후 호출.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goods_no: { type: 'string', description: '특정 상품 번호 (get_product_stats에서 조회). 전체 브랜드 기준이면 빈 문자열.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_new_products',
+      description: '최근 30일 내 처음 리뷰가 등록된 신규/신상 상품. 일평균 리뷰 속도와 긍정·부정 비율. "신상", "새로 나온", "신규 출시" 질문에 사용.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_today_ranking',
+      description: '오늘 시간대별 셀퓨전씨 자사 상품의 순위 타임라인. 카테고리별로 몇 시에 몇 위였는지 확인. "오늘 순위 변화", "몇 시에 몇 위", "타임라인" 질문에 사용.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
 ]
 
@@ -97,7 +121,6 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       return await getStats()
     case 'get_market_rankings': {
       const data = await getMarketRankings()
-      // Top 20으로 trim (토큰 절약)
       return data.map(cat => ({ ...cat, entries: cat.entries.slice(0, 20) }))
     }
     case 'get_promo_status':
@@ -127,51 +150,49 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'messages required' }, { status: 400 })
     }
 
-    // 대화 이력 최대 10턴 유지
     const trimmed = messages.slice(-10)
 
-    let response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const working: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: SYSTEM },
+      ...trimmed,
+    ]
+
+    let response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 1500,
-      system: SYSTEM,
-      messages: trimmed,
+      messages: working,
       tools: TOOLS,
     })
 
     // Tool-use 루프 (최대 3 라운드)
-    const working: Anthropic.MessageParam[] = [...trimmed]
     let rounds = 0
 
-    while (response.stop_reason === 'tool_use' && rounds < 3) {
+    while (response.choices[0].finish_reason === 'tool_calls' && rounds < 3) {
       rounds++
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = []
-      for (const block of response.content) {
-        if (block.type !== 'tool_use') continue
-        const result = await executeTool(block.name, block.input as Record<string, unknown>)
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
+      const assistantMessage = response.choices[0].message
+      working.push(assistantMessage)
+
+      for (const call of assistantMessage.tool_calls!) {
+        if (call.type !== 'function') continue
+        const input = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
+        const result = await executeTool(call.function.name, input)
+        working.push({
+          role: 'tool',
+          tool_call_id: call.id,
           content: JSON.stringify(result),
         })
       }
 
-      working.push({ role: 'assistant', content: response.content })
-      working.push({ role: 'user', content: toolResults })
-
-      response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+      response = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
         max_tokens: 1500,
-        system: SYSTEM,
         messages: working,
         tools: TOOLS,
       })
     }
 
-    const reply = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('')
+    const reply = response.choices[0].message.content ?? ''
 
     return NextResponse.json({ reply })
   } catch (e) {
