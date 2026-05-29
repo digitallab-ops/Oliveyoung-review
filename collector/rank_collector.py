@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import random
 import re
 import urllib.request
 from datetime import date, datetime, timezone
@@ -150,7 +151,7 @@ def run():
             except Exception as e:
                 print(f"  오류: {e}")
 
-            time.sleep(3)
+            time.sleep(random.uniform(4, 8))
 
         print(f"\n=== 완료 - {total_saved}개 시장 순위 저장 ===")
         revalidate_vercel()
