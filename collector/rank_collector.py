@@ -58,6 +58,24 @@ def revalidate_vercel():
         print(f'  Vercel 캐시 초기화 실패: {e}')
 
 
+def _is_unchanged(cur, cat_name: str, ranking: list[dict]) -> bool:
+    """직전 저장 스냅샷과 비교해 랭킹 변화 없으면 True"""
+    cur.execute("""
+        SELECT goods_no FROM market_rankings
+        WHERE category_name = %s
+          AND (rank_date, rank_hour) = (
+              SELECT rank_date, rank_hour FROM market_rankings
+              WHERE category_name = %s
+              ORDER BY rank_date DESC, rank_hour DESC
+              LIMIT 1
+          )
+        ORDER BY rank_position
+    """, (cat_name, cat_name))
+    prev = [r['goods_no'] for r in cur.fetchall()]
+    curr = [item['goods_no'] for item in ranking]
+    return prev == curr
+
+
 def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
     """카테고리 베스트 페이지에서 {goods_no, name} 순위 리스트 반환"""
     params = {'dispCatNo': disp_cat, 'pageIdx': 1, 'rowsPerPage': ROWS_PER_PAGE}
@@ -122,6 +140,11 @@ def run():
                 ranking = fetch_ranking(disp, flt)
 
                 with conn.cursor() as cur:
+                    if _is_unchanged(cur, cat_name, ranking):
+                        print(f"  변화 없음 — 저장 스킵")
+                        time.sleep(random.uniform(4, 8))
+                        continue
+
                     # market_rankings: 전체 100개 저장
                     for rank, item in enumerate(ranking, 1):
                         cur.execute("""
