@@ -6,9 +6,15 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const NO_MARKDOWN_SYSTEM = '당신은 올리브영 뷰티 시장 전문 분석가입니다. 출력 규칙: 1) 모든 줄은 반드시 "- "로 시작하세요. 2) 마크다운 서식 금지(#, ##, **, __, >, `, ~, 이모지 등). 3) 데이터 재나열 금지 — 해석과 판단만 써라. 4) 각 bullet은 마케터가 즉시 행동할 수 있는 하나의 전략적 결론을 담아야 한다. 5) bullet 사이 빈 줄 없이 연속 작성.'
 
-// 6시 수집 → 'am', 16시 수집 → 'pm'
+function getKSTDateStr(): string {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().slice(0, 10)
+}
+
+// 6시 수집 → 'am', 16시 수집 → 'pm' (KST 기준)
 function getSlot(): 'am' | 'pm' {
-  return new Date().getHours() < 13 ? 'am' : 'pm'
+  const kstHour = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours()
+  return kstHour < 13 ? 'am' : 'pm'
 }
 
 // ──────────────────────────────────────────
@@ -79,7 +85,7 @@ export async function generateDailyBrief(
 ): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) return ''
 
-  const todayStr = new Date().toLocaleDateString('sv-SE')
+  const todayStr = getKSTDateStr()
 
   try {
     const cached = await pool.query(
@@ -175,7 +181,7 @@ ${ours.length ? ours.join(', ') : 'TOP100 없음'}
 export async function generateMarketInsight(data: MarketCategoryData[]): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY || data.length === 0) return ''
 
-  const todayStr = new Date().toLocaleDateString('sv-SE')
+  const todayStr = getKSTDateStr()
   const slot = getSlot()
 
   try {
@@ -326,7 +332,7 @@ export async function generateReviewInsight(
 ): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY || insights.total_reviews === 0) return ''
 
-  const todayStr = new Date().toLocaleDateString('sv-SE')
+  const todayStr = getKSTDateStr()
 
   try {
     const cached = await pool.query(
