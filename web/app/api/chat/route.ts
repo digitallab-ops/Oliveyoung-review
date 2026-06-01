@@ -6,8 +6,13 @@ import {
 } from '@/lib/db'
 
 export const maxDuration = 60
+export const dynamic = 'force-dynamic'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+let _client: OpenAI | null = null
+function getClient() {
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _client
+}
 
 const SYSTEM = `당신은 K-뷰티 브랜드 전략 전문가입니다. 셀퓨전씨의 전속 인사이트 파트너로, 올리브영 내 시장 데이터를 읽고 사업 기회와 위기를 짚어주는 역할입니다.
 
@@ -162,6 +167,8 @@ export async function POST(req: Request) {
       { role: 'system', content: SYSTEM },
       ...trimmed,
     ]
+
+    const client = getClient()
 
     let response = await client.chat.completions.create({
       model: 'gpt-4o-mini',
