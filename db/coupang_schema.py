@@ -50,8 +50,13 @@ def init_db(conn=None):
                     product_id    TEXT NOT NULL,
                     product_name  TEXT,
                     rank_position INT NOT NULL,
-                    is_ad         BOOLEAN DEFAULT FALSE
+                    is_ad         BOOLEAN DEFAULT FALSE,
+                    is_ours       BOOLEAN DEFAULT FALSE
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE search_rankings
+                ADD COLUMN IF NOT EXISTS is_ours BOOLEAN DEFAULT FALSE
             """)
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cp_search_uniq ON search_rankings(keyword, rank_date, product_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_search_date ON search_rankings(rank_date DESC)")
@@ -63,8 +68,13 @@ def init_db(conn=None):
                     category_name TEXT NOT NULL,
                     rank_position INT NOT NULL,
                     product_id    TEXT NOT NULL,
-                    product_name  TEXT NOT NULL
+                    product_name  TEXT NOT NULL,
+                    is_ours       BOOLEAN DEFAULT FALSE
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE category_rankings
+                ADD COLUMN IF NOT EXISTS is_ours BOOLEAN DEFAULT FALSE
             """)
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cp_cat_uniq ON category_rankings(rank_date, rank_hour, category_name, rank_position)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_cat_date ON category_rankings(rank_date DESC)")

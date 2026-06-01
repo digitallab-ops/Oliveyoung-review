@@ -111,11 +111,12 @@ def _load_page(driver: uc.Chrome, url: str, retries: int = 3) -> str:
 
 
 def fetch_search_ranking(driver: uc.Chrome, keyword: str) -> list[dict]:
-    """키워드 검색 결과에서 자사 상품 위치 파악 (유기순위 상위 50개)"""
+    """키워드 검색 결과 유기순위 Top 100 전체 수집 (자사·타사 모두)"""
     results = []
+    seen = set()
     organic_rank = 0
 
-    for page in range(1, 3):
+    for page in range(1, 4):
         url = (f'{SEARCH_URL}?q={keyword}&channel=relate'
                f'&sorter=scoreDesc&listSize=36&page={page}')
         try:
@@ -130,8 +131,9 @@ def fetch_search_ranking(driver: uc.Chrome, keyword: str) -> list[dict]:
                 if not link:
                     continue
                 product_id = _extract_product_id(link.get('href', ''))
-                if not product_id:
+                if not product_id or product_id in seen:
                     continue
+                seen.add(product_id)
 
                 is_ad = '광고' in item.get_text()
                 if not is_ad:
@@ -140,19 +142,19 @@ def fetch_search_ranking(driver: uc.Chrome, keyword: str) -> list[dict]:
                 name_el = item.select_one('[class*="productNameV2"], [class*="name"]')
                 product_name = name_el.get_text(strip=True) if name_el else ''
 
-                if BRAND_QUERY in product_name:
-                    results.append({
-                        'keyword': keyword,
-                        'product_id': product_id,
-                        'product_name': product_name,
-                        'rank_position': organic_rank if not is_ad else 0,
-                        'is_ad': is_ad,
-                    })
+                results.append({
+                    'keyword': keyword,
+                    'product_id': product_id,
+                    'product_name': product_name,
+                    'rank_position': organic_rank if not is_ad else 0,
+                    'is_ad': is_ad,
+                    'is_ours': BRAND_QUERY in product_name,
+                })
 
-                if organic_rank >= 50:
+                if organic_rank >= 100:
                     break
 
-            if organic_rank >= 50 or len(items) < 10:
+            if organic_rank >= 100 or len(items) < 10:
                 break
 
             time.sleep(random.uniform(2, 3))
@@ -204,6 +206,7 @@ def fetch_category_ranking(driver: uc.Chrome, cat_name: str, cat_id: str) -> lis
                     'rank_position': len(results) + 1,
                     'product_id': product_id,
                     'product_name': product_name,
+                    'is_ours': BRAND_QUERY in product_name,
                 })
 
             if len(results) >= 100 or len(items) < 10:
@@ -254,20 +257,22 @@ def run():
             print(f"  키워드: {keyword}")
             hits = fetch_search_ranking(driver, keyword)
             if hits:
+                ours = sum(1 for h in hits if h['is_ours'] and not h['is_ad'])
                 with conn.cursor() as cur:
                     for h in hits:
                         cur.execute("""
                             INSERT INTO search_rankings
-                                (keyword, rank_date, product_id, product_name, rank_position, is_ad)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                                (keyword, rank_date, product_id, product_name, rank_position, is_ad, is_ours)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (keyword, rank_date, product_id)
                             DO UPDATE SET rank_position = EXCLUDED.rank_position,
-                                          is_ad = EXCLUDED.is_ad
+                                          is_ad = EXCLUDED.is_ad,
+                                          is_ours = EXCLUDED.is_ours
                         """, (h['keyword'], today, h['product_id'], h['product_name'],
-                              h['rank_position'], h['is_ad']))
-                print(f"    자사 상품 {len(hits)}개 발견")
+                              h['rank_position'], h['is_ad'], h['is_ours']))
+                print(f"    전체 {len(hits)}개 저장 (자사 {ours}개)")
             else:
-                print(f"    자사 상품 Top50 내 없음")
+                print(f"    결과 없음")
             time.sleep(random.uniform(2, 4))
 
         # ── 카테고리 베스트 ────────────────────────
@@ -289,13 +294,14 @@ def run():
                 for item in ranking:
                     cur.execute("""
                         INSERT INTO category_rankings
-                            (rank_date, rank_hour, category_name, rank_position, product_id, product_name)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                            (rank_date, rank_hour, category_name, rank_position, product_id, product_name, is_ours)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (rank_date, rank_hour, category_name, rank_position)
                         DO UPDATE SET product_id = EXCLUDED.product_id,
-                                      product_name = EXCLUDED.product_name
+                                      product_name = EXCLUDED.product_name,
+                                      is_ours = EXCLUDED.is_ours
                     """, (today, rank_hour, item['category_name'], item['rank_position'],
-                          item['product_id'], item['product_name']))
+                          item['product_id'], item['product_name'], item['is_ours']))
 
             print(f"    {len(ranking)}개 저장")
             time.sleep(random.uniform(2, 4))

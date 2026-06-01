@@ -11,17 +11,18 @@ const pool = new Pool({
 export async function GET() {
   const client = await pool.connect()
   try {
-    // 검색순위: 키워드별 최신 날짜 기준
+    // 검색순위: 키워드별 최신 날짜 기준 Top 100
     const { rows: searchRows } = await client.query(`
-      SELECT keyword, product_id, product_name, rank_position, is_ad, rank_date
+      SELECT keyword, product_id, product_name, rank_position, is_ad, is_ours, rank_date
       FROM search_rankings
       WHERE rank_date = (SELECT MAX(rank_date) FROM search_rankings)
+        AND is_ad = false
       ORDER BY keyword, rank_position
     `)
 
-    // 카테고리 순위: 최신 rank_date + rank_hour 기준 Top 20
+    // 카테고리 순위: 최신 rank_date + rank_hour 기준 Top 100
     const { rows: catRows } = await client.query(`
-      SELECT category_name, rank_position, product_id, product_name, rank_date, rank_hour
+      SELECT category_name, rank_position, product_id, product_name, is_ours, rank_date, rank_hour
       FROM category_rankings
       WHERE (rank_date, rank_hour) = (
         SELECT rank_date, rank_hour FROM category_rankings
@@ -29,7 +30,7 @@ export async function GET() {
         LIMIT 1
       )
       ORDER BY category_name, rank_position
-      LIMIT 60
+      LIMIT 300
     `)
 
     return NextResponse.json({ search: searchRows, category: catRows })
