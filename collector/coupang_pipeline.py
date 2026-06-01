@@ -125,13 +125,18 @@ def fetch_brand_products(driver: uc.Chrome) -> list[dict]:
             if product_id in products:
                 continue
 
+            product_name = item.get('name', '')
+            # 셀퓨전씨 브랜드 상품만 수집 (광고로 노출된 타사 상품 제외)
+            if '셀퓨전씨' not in product_name and 'cellfusionc' not in product_name.lower():
+                continue
+
             vi_m = re.search(r'vendorItemId=(\d+)', item_url)
             vendor_item_id = vi_m.group(1) if vi_m else None
 
             rating_info = item.get('aggregateRating', {})
             products[product_id] = {
                 'product_id': product_id,
-                'product_name': item.get('name', ''),
+                'product_name': product_name,
                 'vendor_item_id': vendor_item_id,
                 'rating': rating_info.get('ratingValue'),
                 'review_count': rating_info.get('reviewCount'),
