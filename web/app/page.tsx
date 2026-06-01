@@ -1,7 +1,6 @@
 import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights } from '@/lib/db'
 import { generateMarketInsight, generateReviewInsight, generateDailyBrief } from '@/lib/ai'
-import KPIStrip from '@/components/KPIStrip'
-import DashboardTabs from '@/components/DashboardTabs'
+import PlatformShell from '@/components/PlatformShell'
 
 export const revalidate = 300
 export const maxDuration = 60
@@ -99,34 +98,10 @@ export default async function Page() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1280px] px-4 md:px-6 py-10 md:py-16 space-y-14">
+      <main className="mx-auto max-w-[1280px] px-4 md:px-6 py-10 md:py-16">
 
-        {/* HERO */}
-        <section className="space-y-6 animate-fade-up">
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-2xs font-semibold
-                             bg-accent-bg text-accent-fg border border-accent-border">
-                올리브영 공식 브랜드관
-              </span>
-              <span className="text-2xs text-text-tertiary">
-                {stats.total_products}개 상품
-              </span>
-            </div>
-            <h1 className="text-4xl font-bold text-text-primary tracking-tight leading-tight">
-              소비자 반응<br className="sm:hidden" />
-              <span className="text-text-tertiary font-normal"> 지금 어때요?</span>
-            </h1>
-            <p className="mt-3 text-base text-text-secondary leading-relaxed">
-              실구매 고객 {stats.total_reviews.toLocaleString()}명의 솔직한 리뷰를
-              매일 자동으로 수집합니다.
-            </p>
-          </div>
-
-          <KPIStrip stats={stats} />
-        </section>
-
-        <DashboardTabs
+        <PlatformShell
+          stats={stats}
           insights={insights}
           timeSeries={timeSeries}
           negativeData={negativeData}
