@@ -15,7 +15,7 @@ export async function GET() {
       SELECT
         (SELECT COUNT(*) FROM reviews)::int           AS total_reviews,
         (SELECT COUNT(*) FROM products)::int          AS total_products,
-        ROUND(AVG(rating)::numeric, 2)                AS avg_rating,
+        ROUND(AVG(rating)::numeric, 2)::float         AS avg_rating,
         MAX(collected_at)                             AS last_updated
       FROM reviews
     `)

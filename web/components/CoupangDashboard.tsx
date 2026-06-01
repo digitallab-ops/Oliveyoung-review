@@ -131,7 +131,7 @@ export default function CoupangDashboard() {
         <div className="sm:col-span-2 rounded-xl px-5 py-6 border" style={{ background: 'rgba(234,88,12,0.06)', borderColor: 'rgba(234,88,12,0.25)' }}>
           <p className="text-xs text-text-secondary mb-2 font-medium">평균 평점</p>
           <p className="text-[3.5rem] font-bold leading-none mb-1" style={{ color: '#ea580c' }}>
-            {stats?.avg_rating?.toFixed(1) ?? '-'}
+            {stats?.avg_rating != null ? Number(stats.avg_rating).toFixed(1) : '-'}
           </p>
           <p className="text-xs text-text-secondary/70">총 {(stats?.total_reviews ?? 0).toLocaleString()}개 리뷰</p>
         </div>
