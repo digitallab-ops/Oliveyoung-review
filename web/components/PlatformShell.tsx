@@ -5,6 +5,7 @@ import PlatformSelector, { type Platform } from '@/components/PlatformSelector'
 import KPIStrip from '@/components/KPIStrip'
 import DashboardTabs from '@/components/DashboardTabs'
 import CoupangDashboard from '@/components/CoupangDashboard'
+import NaverDashboard from '@/components/NaverDashboard'
 import type {
   Stats, Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, InsightsSnapshot, ProductRankingData,
@@ -59,6 +60,12 @@ export default function PlatformShell({
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-2xs font-semibold
                            bg-orange-50 text-orange-700 border border-orange-200">
               쿠팡 브랜드 스토어
+            </span>
+          )}
+          {platform === 'naver' && (
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-2xs font-semibold
+                           bg-green-50 text-green-700 border border-green-200">
+              네이버 쇼핑 · 선케어 시장
             </span>
           )}
           {platform === 'amazon' && (
@@ -134,6 +141,27 @@ export default function PlatformShell({
             </p>
           </section>
           <CoupangDashboard />
+        </>
+      )}
+
+      {/* 네이버 */}
+      {platform === 'naver' && (
+        <>
+          <section className="space-y-4 animate-fade-up">
+            <div className="flex items-center gap-3">
+              <h1 className="text-4xl font-bold text-text-primary tracking-tight leading-tight">
+                네이버 인사이트<br className="sm:hidden" />
+                <span className="text-text-tertiary font-normal"> 쇼핑 · 트렌드</span>
+              </h1>
+              <span className="self-start mt-1.5 px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-700 border border-green-200">
+                Beta
+              </span>
+            </div>
+            <p className="text-base text-text-secondary leading-relaxed">
+              네이버 쇼핑 검색 노출, DataLab 트렌드, 경쟁사 시장 현황을 자동으로 수집합니다.
+            </p>
+          </section>
+          <NaverDashboard />
         </>
       )}
 
