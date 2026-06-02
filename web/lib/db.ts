@@ -1258,3 +1258,69 @@ export async function getCoupangRecentReviews(productId?: string) {
     LIMIT 40
   `, params)
 }
+
+// ── 네이버 ─────────────────────────────────────────────────────────────────
+
+const nvPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 2,
+  idleTimeoutMillis: 10000,
+  options: '-c search_path=naver',
+})
+
+async function nvQuery<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+  const client = await nvPool.connect()
+  try {
+    const { rows } = await client.query(sql, params)
+    return rows as T[]
+  } finally {
+    client.release()
+  }
+}
+
+export async function getNaverTrends() {
+  return nvQuery<{ keyword: string; date: string; ratio: number }>(`
+    SELECT keyword, period::text AS date, ratio
+    FROM trends
+    WHERE period >= CURRENT_DATE - INTERVAL '8 weeks'
+    ORDER BY keyword, period
+  `)
+}
+
+export async function getNaverSearchRanks() {
+  return nvQuery<{
+    keyword: string; rank_position: number; product_title: string
+    mall_name: string; price: number; is_ours: boolean; rank_date: string
+  }>(`
+    SELECT keyword, rank_position, product_title, mall_name, price, is_ours, rank_date::text
+    FROM search_ranks
+    WHERE rank_date = (SELECT MAX(rank_date) FROM search_ranks)
+    ORDER BY keyword, rank_position
+    LIMIT 200
+  `)
+}
+
+export async function getNaverMarket() {
+  return nvQuery<{
+    category: string; brand: string | null; product_title: string
+    price: number; is_ours: boolean; volume_ml: number | null
+  }>(`
+    SELECT category, brand, product_title, price, is_ours, volume_ml
+    FROM market_items
+    WHERE collected_date = (SELECT MAX(collected_date) FROM market_items)
+      AND price > 0
+    ORDER BY category, is_ours DESC, price
+    LIMIT 200
+  `)
+}
+
+export async function getNaverLatestInsight() {
+  const rows = await nvQuery<{ id: number; content: string; collected_at: string }>(`
+    SELECT id, content,
+           to_char(collected_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS collected_at
+    FROM insights
+    ORDER BY collected_at DESC
+    LIMIT 1
+  `)
+  return rows[0] ?? null
+}

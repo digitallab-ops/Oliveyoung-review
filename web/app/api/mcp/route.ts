@@ -1,5 +1,6 @@
 /**
- * OliveYoung Insight MCP Server — Vercel Next.js 배포
+ * CellFusionC Multi-Platform MCP Server — Vercel Next.js 배포
+ * 플랫폼: 올리브영 · 쿠팡 · 네이버 쇼핑
  *
  * Claude Desktop 연결:
  * claude_desktop_config.json → mcpServers → { "url": "https://oliveyoungreview.vercel.app/api/mcp" }
@@ -13,14 +14,16 @@ import { NextRequest } from 'next/server'
 import {
   getStats, getMarketRankings, getPromoStatus, getNegativeAlerts,
   getProductStats, getInsights, getNewProducts, getOurRankingTimeline,
+  getCoupangStats, getCoupangProductStats, getCoupangRankings, getCoupangRecentReviews,
+  getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
 } from '@/lib/db'
 
 export const maxDuration = 60
 
 function buildMcpServer(): McpServer {
   const server = new McpServer({
-    name: 'OliveYoung Insight',
-    version: '1.0.0',
+    name: 'CellFusionC Insight — 올리브영·쿠팡·네이버',
+    version: '2.0.0',
   })
 
   server.tool(
@@ -100,6 +103,90 @@ function buildMcpServer(): McpServer {
     {},
     async () => {
       const data = await getOurRankingTimeline()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  // ── 쿠팡 ──────────────────────────────────────────────────────────────────
+
+  server.tool(
+    'get_coupang_stats',
+    '[쿠팡] 셀퓨전씨 쿠팡 전체 현황. 수집 상품 수, 총 리뷰 수, 평균 평점, 마지막 수집 시각.',
+    {},
+    async () => {
+      const data = await getCoupangStats()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_coupang_product_stats',
+    '[쿠팡] 셀퓨전씨 상품별 리뷰 수, 평균 평점. 어떤 상품이 잘 팔리는지 확인.',
+    {},
+    async () => {
+      const data = await getCoupangProductStats()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_coupang_rankings',
+    '[쿠팡] 검색순위와 카테고리 베스트셀러 순위. 자사 상품 노출 현황 포함.',
+    {},
+    async () => {
+      const data = await getCoupangRankings()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_coupang_reviews',
+    '[쿠팡] 실구매 리뷰 내용. 소비자 반응과 불만 파악. 특정 상품 ID 지정 가능.',
+    { product_id: z.string().optional().describe('특정 상품 ID. 전체 브랜드면 생략.') },
+    async ({ product_id }) => {
+      const data = await getCoupangRecentReviews(product_id)
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  // ── 네이버 ────────────────────────────────────────────────────────────────
+
+  server.tool(
+    'get_naver_trends',
+    '[네이버] DataLab 검색 트렌드. 최근 8주 주간 검색지수(0~100). 키워드별 관심도 추이.',
+    {},
+    async () => {
+      const data = await getNaverTrends()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_naver_search_ranks',
+    '[네이버] 쇼핑 검색 결과 순위. 키워드별 자사 셀퓨전씨 상품 노출 위치(is_ours=true).',
+    {},
+    async () => {
+      const data = await getNaverSearchRanks()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_naver_market',
+    '[네이버] 선케어 카테고리별 경쟁사 상품 현황. 브랜드별 가격 분포. 자사 상품은 is_ours=true.',
+    {},
+    async () => {
+      const data = await getNaverMarket()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_naver_insight',
+    '[네이버] 가장 최근에 자동 생성된 AI 네이버 쇼핑 시장 분석 인사이트.',
+    {},
+    async () => {
+      const data = await getNaverLatestInsight()
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
     }
   )

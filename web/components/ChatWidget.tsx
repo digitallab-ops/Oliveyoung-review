@@ -22,10 +22,16 @@ const EXAMPLES_COUPANG = [
   '검색순위 현황 알려줘',
 ]
 
+const EXAMPLES_NAVER = [
+  '선크림 검색 트렌드 요즘 어때?',
+  '셀퓨전씨 네이버 검색 노출 몇 위야?',
+  '경쟁사 대비 가격 포지션 어때?',
+  '최근 AI 분석 인사이트 요약해줘',
+]
+
 export default function ChatWidget() {
   const searchParams = useSearchParams()
   const platform = searchParams.get('platform') ?? 'oliveyoung'
-  const isCoupang = platform === 'coupang'
 
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
@@ -118,13 +124,15 @@ export default function ChatWidget() {
             {messages.length === 0 ? (
               <div className="space-y-4">
                 <p className="text-xs text-text-tertiary leading-relaxed">
-                  {isCoupang
-                    ? '쿠팡 리뷰·검색순위·카테고리 데이터를 기반으로 답변합니다.'
-                    : '수집된 리뷰·랭킹·프로모션 데이터를 기반으로 답변합니다.'}
+                  {platform === 'coupang' ? '쿠팡 리뷰·검색순위·카테고리 데이터를 기반으로 답변합니다.'
+                   : platform === 'naver'  ? '네이버 쇼핑 트렌드·검색 노출·경쟁사 시장 데이터를 기반으로 답변합니다.'
+                   : '수집된 리뷰·랭킹·프로모션 데이터를 기반으로 답변합니다.'}
                 </p>
                 <div className="space-y-2">
                   <p className="text-xs text-text-tertiary font-medium">예시 질문</p>
-                  {(isCoupang ? EXAMPLES_COUPANG : EXAMPLES_OLIVEYOUNG).map(ex => (
+                  {(platform === 'coupang' ? EXAMPLES_COUPANG
+                    : platform === 'naver' ? EXAMPLES_NAVER
+                    : EXAMPLES_OLIVEYOUNG).map(ex => (
                     <button
                       key={ex}
                       onClick={() => send(ex)}
