@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import SectionDivider from '@/components/SectionDivider'
 
+// ─── 타입 ────────────────────────────────────────────────
+
 interface CoupangStats {
   total_reviews: number
   total_products: number
@@ -34,7 +36,9 @@ interface SearchRanking {
   product_id: string
   product_name: string | null
   rank_position: number
-  is_ad: boolean
+  is_ours: boolean
+  prev_rank: number | null
+  delta: number | null
   rank_date: string
 }
 
@@ -43,9 +47,14 @@ interface CategoryRanking {
   rank_position: number
   product_id: string
   product_name: string
+  is_ours: boolean
+  prev_rank: number | null
+  delta: number | null
   rank_date: string
   rank_hour: number
 }
+
+// ─── 상수 ────────────────────────────────────────────────
 
 const TABS = [
   { id: 'today',    label: '오늘 현황' },
@@ -56,13 +65,14 @@ const TABS = [
 type TabId = typeof TABS[number]['id']
 
 type RatingFilter = 'all' | 'five' | 'four_plus' | 'negative'
-
 const RATING_FILTERS: { value: RatingFilter; label: string }[] = [
   { value: 'all',       label: '전체' },
   { value: 'five',      label: '★5 만족' },
   { value: 'four_plus', label: '★4 이상' },
   { value: 'negative',  label: '불만족' },
 ]
+
+// ─── 헬퍼 ────────────────────────────────────────────────
 
 function ratingColor(r: number | null) {
   const n = r ?? 0
@@ -83,15 +93,54 @@ function shortProductName(name: string | null): string {
   return name.replace(/\[.*?\]\s*/g, '').replace(/^셀퓨전씨\s*/i, '').slice(0, 18).trim()
 }
 
-const isBrand = (name: string | null) => (name ?? '').includes('셀퓨전씨')
+// ─── DeltaBadge ──────────────────────────────────────────
+
+function DeltaBadge({ delta, prevRank }: { delta: number | null; prevRank: number | null }) {
+  if (prevRank === null) {
+    return (
+      <span className="inline-flex items-center text-2xs font-semibold px-1.5 py-0.5 rounded
+                       bg-blue-50 text-blue-600 border border-blue-100 shrink-0">
+        NEW
+      </span>
+    )
+  }
+  if (delta === null || delta === 0) {
+    return <span className="text-2xs text-text-tertiary shrink-0 w-8 text-right">-</span>
+  }
+  if (delta > 0) {
+    return (
+      <span className="text-2xs font-bold text-emerald-600 shrink-0 w-8 text-right">
+        ▲{delta}
+      </span>
+    )
+  }
+  return (
+    <span className="text-2xs font-bold text-red-500 shrink-0 w-8 text-right">
+      ▼{Math.abs(delta)}
+    </span>
+  )
+}
+
+// ─── RankBadge (순위 숫자 색상) ──────────────────────────
+
+function RankBadge({ pos }: { pos: number }) {
+  const gold   = pos === 1 ? 'text-yellow-500' : ''
+  const silver = pos === 2 ? 'text-slate-400'  : ''
+  const bronze = pos === 3 ? 'text-amber-600'  : ''
+  const rest   = pos  > 3 ? 'text-text-tertiary' : ''
+  return (
+    <span className={`text-sm font-bold w-7 text-right shrink-0 ${gold || silver || bronze || rest}`}>
+      {pos}
+    </span>
+  )
+}
+
+// ─── ReviewCard ──────────────────────────────────────────
 
 const PREVIEW_LEN = 120
 
 function CoupangReviewCard({
-  review,
-  showProduct,
-  onProductClick,
-  index = 0,
+  review, showProduct, onProductClick, index = 0,
 }: {
   review: CoupangReview
   showProduct: boolean
@@ -99,9 +148,9 @@ function CoupangReviewCard({
   index?: number
 }) {
   const [expanded, setExpanded] = useState(false)
-  const content  = review.content ?? ''
-  const isLong   = content.length > PREVIEW_LEN
-  const color    = ratingColor(review.rating)
+  const content   = review.content ?? ''
+  const isLong    = content.length > PREVIEW_LEN
+  const color     = ratingColor(review.rating)
   const shortName = shortProductName(review.product_name)
 
   return (
@@ -112,7 +161,6 @@ function CoupangReviewCard({
       className="bg-surface border border-border rounded-lg overflow-hidden hover:shadow-card-hover transition-all duration-200"
     >
       <div className="px-5 py-4 md:px-6 md:py-5">
-        {/* 메타 행 */}
         <div className="flex items-center gap-2.5 flex-wrap mb-3">
           <span className="text-sm font-semibold tracking-wide" style={{ color }}>
             {ratingStars(review.rating)}
@@ -142,8 +190,6 @@ function CoupangReviewCard({
             )}
           </div>
         </div>
-
-        {/* 본문 */}
         <AnimatePresence initial={false}>
           <motion.div
             key={expanded ? 'exp' : 'col'}
@@ -154,22 +200,16 @@ function CoupangReviewCard({
             className="text-base text-text-primary"
             style={{ lineHeight: '1.85' }}
           >
-            {expanded || !isLong
-              ? content
-              : content.slice(0, PREVIEW_LEN).trimEnd() + '...'}
+            {expanded || !isLong ? content : content.slice(0, PREVIEW_LEN).trimEnd() + '...'}
           </motion.div>
         </AnimatePresence>
-
         {isLong && (
           <button
             onClick={() => setExpanded(v => !v)}
-            className="mt-2.5 flex items-center gap-1 text-xs font-medium text-text-tertiary hover:text-accent transition-colors duration-150 group"
+            className="mt-2.5 flex items-center gap-1 text-xs font-medium text-text-tertiary hover:text-accent transition-colors duration-150"
           >
             <span>{expanded ? '접기' : '더 보기'}</span>
-            <ChevronDown
-              size={13}
-              className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-            />
+            <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
           </button>
         )}
       </div>
@@ -177,12 +217,14 @@ function CoupangReviewCard({
   )
 }
 
+// ─── 메인 컴포넌트 ────────────────────────────────────────
+
 export default function CoupangDashboard() {
-  const [active, setActive]         = useState<TabId>('today')
-  const [loading, setLoading]       = useState(true)
-  const [stats, setStats]           = useState<CoupangStats | null>(null)
-  const [rankings, setRankings]     = useState<{ search: SearchRanking[]; category: CategoryRanking[] } | null>(null)
-  const [products, setProducts]     = useState<CoupangProduct[]>([])
+  const [active, setActive]     = useState<TabId>('today')
+  const [loading, setLoading]   = useState(true)
+  const [stats, setStats]       = useState<CoupangStats | null>(null)
+  const [rankings, setRankings] = useState<{ search: SearchRanking[]; category: CategoryRanking[] } | null>(null)
+  const [products, setProducts] = useState<CoupangProduct[]>([])
 
   const [selectedProduct, setSelectedProduct] = useState('')
   const [ratingFilter, setRatingFilter]       = useState<RatingFilter>('all')
@@ -193,7 +235,6 @@ export default function CoupangDashboard() {
   const [reviewLoading, setReviewLoading]     = useState(false)
   const [loadingMore, setLoadingMore]         = useState(false)
 
-  // 최초 데이터 로드
   useEffect(() => {
     Promise.all([
       fetch('/api/coupang/stats').then(r => r.ok ? r.json() : null),
@@ -211,10 +252,7 @@ export default function CoupangDashboard() {
   }, [])
 
   const fetchReviews = useCallback(async (
-    productId: string,
-    filter: RatingFilter,
-    page: number,
-    append = false,
+    productId: string, filter: RatingFilter, page: number, append = false,
   ) => {
     if (append) setLoadingMore(true)
     else setReviewLoading(true)
@@ -237,17 +275,13 @@ export default function CoupangDashboard() {
     }
   }, [])
 
-  // 최초 리뷰 로드
-  useEffect(() => {
-    fetchReviews('', 'all', 0)
-  }, [fetchReviews])
+  useEffect(() => { fetchReviews('', 'all', 0) }, [fetchReviews])
 
   const handleProductChange = (id: string) => {
     setSelectedProduct(id)
     setRatingFilter('all')
     fetchReviews(id, 'all', 0)
   }
-
   const handleFilterChange = (f: RatingFilter) => {
     setRatingFilter(f)
     fetchReviews(selectedProduct, f, 0)
@@ -263,29 +297,41 @@ export default function CoupangDashboard() {
   }
 
   const catList    = rankings?.category ?? []
-  const searchList = rankings?.search ?? []
+  const searchList = rankings?.search   ?? []
 
   const catGroups = catList.reduce<Record<string, CategoryRanking[]>>((acc, r) => {
     const key = r.category_name ?? '기타'
-    acc[key] = acc[key] ?? []
+    acc[key]  = acc[key] ?? []
     acc[key].push(r)
     return acc
   }, {})
 
   const searchGroups = searchList.reduce<Record<string, SearchRanking[]>>((acc, r) => {
     const key = r.keyword ?? '기타'
-    acc[key] = acc[key] ?? []
+    acc[key]  = acc[key] ?? []
     acc[key].push(r)
     return acc
   }, {})
 
-  const brandProducts = catList.filter(r => isBrand(r.product_name))
+  // 자사 카테고리 상품 (오늘 현황)
+  const ourCatProducts = catList.filter(r => r.is_ours)
+
+  // 급상승 (delta ≥ 5, 자사/타사 무관)
+  const topRisers = catList
+    .filter(r => (r.delta ?? 0) >= 5)
+    .sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))
+    .slice(0, 8)
+
+  // 자사 검색 노출 요약 (검색순위 탭 상단)
+  const ourSearchItems = searchList.filter(r => r.is_ours)
 
   return (
     <div className="space-y-8">
-      {/* KPI */}
+
+      {/* ── KPI ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="sm:col-span-2 rounded-xl px-5 py-6 border" style={{ background: 'rgba(234,88,12,0.06)', borderColor: 'rgba(234,88,12,0.25)' }}>
+        <div className="sm:col-span-2 rounded-xl px-5 py-6 border"
+             style={{ background: 'rgba(234,88,12,0.06)', borderColor: 'rgba(234,88,12,0.25)' }}>
           <p className="text-xs text-text-secondary mb-2 font-medium">평균 평점</p>
           <p className="text-[3.5rem] font-bold leading-none mb-1" style={{ color: '#ea580c' }}>
             {stats?.avg_rating != null ? Number(stats.avg_rating).toFixed(1) : '-'}
@@ -304,7 +350,7 @@ export default function CoupangDashboard() {
         </div>
       </div>
 
-      {/* 탭 바 */}
+      {/* ── 탭 바 ── */}
       <div className="border-b border-border sticky top-14 z-30 bg-background/95 backdrop-blur-sm">
         <nav className="flex gap-0 -mb-px">
           {TABS.map(tab => (
@@ -324,19 +370,28 @@ export default function CoupangDashboard() {
       </div>
 
       <div>
-        {/* 오늘 현황 */}
+
+        {/* ══════════════════════════════════════
+            오늘 현황
+        ══════════════════════════════════════ */}
         {active === 'today' && (
-          <div className="space-y-8">
-            {brandProducts.length > 0 ? (
+          <div className="space-y-10">
+
+            {/* 자사 입점 현황 */}
+            {ourCatProducts.length > 0 ? (
               <div>
                 <SectionDivider tag="자사 입점 현황" />
-                <div className="space-y-2">
-                  {brandProducts.map((r, i) => (
-                    <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border bg-surface">
-                      <span className="text-lg font-bold text-accent w-10 text-right shrink-0">{r.rank_position}위</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {ourCatProducts.map((r, i) => (
+                    <div key={i}
+                         className="flex items-center gap-3 px-4 py-4 rounded-xl border border-accent/30 bg-accent-bg">
+                      <div className="flex flex-col items-center shrink-0 w-14">
+                        <span className="text-2xl font-bold text-accent leading-none">{r.rank_position}위</span>
+                        <DeltaBadge delta={r.delta} prevRank={r.prev_rank} />
+                      </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-text-primary truncate">{r.product_name}</p>
-                        <p className="text-xs text-text-tertiary">{r.category_name}</p>
+                        <p className="text-xs font-semibold text-accent mb-0.5">{r.category_name}</p>
+                        <p className="text-sm text-text-primary leading-snug line-clamp-2">{r.product_name}</p>
                       </div>
                     </div>
                   ))}
@@ -349,9 +404,37 @@ export default function CoupangDashboard() {
               </div>
             )}
 
+            {/* 급상승 브랜드 */}
+            {topRisers.length > 0 && (
+              <div>
+                <SectionDivider tag="급상승 (▲5↑)" />
+                <div className="space-y-2">
+                  {topRisers.map((r, i) => (
+                    <div key={i}
+                         className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                           r.is_ours ? 'border-accent/30 bg-accent-bg' : 'border-border bg-surface'
+                         }`}>
+                      <span className="text-xs font-bold text-text-tertiary w-4 shrink-0">{i + 1}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-background border border-border text-text-secondary shrink-0">
+                        {r.category_name}
+                      </span>
+                      <span className={`text-sm flex-1 truncate ${r.is_ours ? 'text-accent font-semibold' : 'text-text-primary'}`}>
+                        {r.product_name}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-sm font-bold text-text-secondary">{r.rank_position}위</span>
+                        <span className="text-sm font-bold text-emerald-600">▲{r.delta}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 카테고리별 Top 10 */}
             {Object.keys(catGroups).length > 0 && (
               <div>
-                <SectionDivider tag="카테고리 현황" />
+                <SectionDivider tag="카테고리별 Top 10" />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {Object.entries(catGroups).map(([cat, items]) => (
                     <div key={cat} className="rounded-lg border border-border bg-surface px-4 py-4">
@@ -359,12 +442,11 @@ export default function CoupangDashboard() {
                       <ol className="space-y-1.5">
                         {items.slice(0, 10).map(item => (
                           <li key={item.rank_position} className="flex items-center gap-2 text-sm">
-                            <span className={`w-5 text-right text-xs font-bold shrink-0 ${item.rank_position <= 3 ? 'text-accent' : 'text-text-tertiary'}`}>
-                              {item.rank_position}
-                            </span>
-                            <span className={`truncate ${isBrand(item.product_name) ? 'text-accent font-semibold' : 'text-text-primary'}`}>
+                            <RankBadge pos={item.rank_position} />
+                            <span className={`truncate flex-1 ${item.is_ours ? 'text-accent font-semibold' : 'text-text-primary'}`}>
                               {item.product_name}
                             </span>
+                            <DeltaBadge delta={item.delta} prevRank={item.prev_rank} />
                           </li>
                         ))}
                       </ol>
@@ -376,10 +458,11 @@ export default function CoupangDashboard() {
           </div>
         )}
 
-        {/* 리뷰 분석 */}
+        {/* ══════════════════════════════════════
+            리뷰 분석
+        ══════════════════════════════════════ */}
         {active === 'reviews' && (
           <section>
-            {/* 상품 선택 */}
             <div className="mb-4">
               <select
                 value={selectedProduct}
@@ -398,8 +481,6 @@ export default function CoupangDashboard() {
                 ))}
               </select>
             </div>
-
-            {/* 별점 필터 */}
             <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
               {RATING_FILTERS.map(f => (
                 <button
@@ -415,19 +496,14 @@ export default function CoupangDashboard() {
                 </button>
               ))}
             </div>
-
-            {/* 리뷰 수 */}
             <p className="text-xs text-text-tertiary mb-4">{reviewTotal.toLocaleString()}개 리뷰</p>
-
-            {/* 리뷰 목록 */}
             {reviewLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="bg-surface border border-border rounded-lg p-5">
                     <div className="skeleton h-3 w-32 rounded mb-3" />
                     <div className="skeleton h-3 w-full rounded mb-2" />
-                    <div className="skeleton h-3 w-4/5 rounded mb-2" />
-                    <div className="skeleton h-3 w-3/5 rounded" />
+                    <div className="skeleton h-3 w-4/5 rounded" />
                   </div>
                 ))}
               </div>
@@ -455,7 +531,6 @@ export default function CoupangDashboard() {
                     ))}
                   </motion.div>
                 </AnimatePresence>
-
                 {hasMore && (
                   <div className="mt-6 text-center">
                     <button
@@ -476,29 +551,54 @@ export default function CoupangDashboard() {
           </section>
         )}
 
-        {/* 검색순위 */}
+        {/* ══════════════════════════════════════
+            검색순위
+        ══════════════════════════════════════ */}
         {active === 'search' && (
-          <div className="space-y-6">
+          <div className="space-y-8">
+
+            {/* 자사 검색 노출 요약 */}
+            {ourSearchItems.length > 0 && (
+              <div>
+                <SectionDivider tag="자사 검색 노출 요약" />
+                <div className="flex flex-wrap gap-2">
+                  {ourSearchItems.map((item, i) => (
+                    <div key={i}
+                         className="flex items-center gap-2 px-3 py-2 rounded-lg border border-accent/30 bg-accent-bg">
+                      <span className="text-xs text-text-secondary">{item.keyword}</span>
+                      <span className="text-sm font-bold text-accent">{item.rank_position}위</span>
+                      <DeltaBadge delta={item.delta} prevRank={item.prev_rank} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 키워드별 전체 목록 */}
             {Object.keys(searchGroups).length === 0 ? (
               <div className="border border-dashed border-border rounded-lg px-6 py-12 text-center">
                 <p className="text-sm text-text-secondary">검색순위 데이터가 없어요</p>
+                <p className="text-xs text-text-tertiary mt-1">수집 후 데이터가 표시됩니다</p>
               </div>
             ) : (
               Object.entries(searchGroups).map(([keyword, items]) => (
                 <div key={keyword}>
                   <SectionDivider tag={`키워드: ${keyword}`} />
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {items.map(item => (
-                      <div key={item.product_id} className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border bg-surface">
-                        <span className={`text-sm font-bold w-8 text-right shrink-0 ${item.rank_position <= 3 ? 'text-accent' : 'text-text-tertiary'}`}>
-                          {item.rank_position === 0 ? '광고' : `${item.rank_position}위`}
-                        </span>
-                        <span className={`text-sm truncate flex-1 ${isBrand(item.product_name) ? 'text-accent font-semibold' : 'text-text-primary'}`}>
+                      <div
+                        key={item.product_id}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                          item.is_ours
+                            ? 'border-accent/30 bg-accent-bg'
+                            : 'border-border bg-surface'
+                        }`}
+                      >
+                        <RankBadge pos={item.rank_position} />
+                        <span className={`text-sm truncate flex-1 ${item.is_ours ? 'text-accent font-semibold' : 'text-text-primary'}`}>
                           {item.product_name ?? '-'}
                         </span>
-                        {item.is_ad && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 shrink-0">광고</span>
-                        )}
+                        <DeltaBadge delta={item.delta} prevRank={item.prev_rank} />
                       </div>
                     ))}
                   </div>
@@ -508,29 +608,33 @@ export default function CoupangDashboard() {
           </div>
         )}
 
-        {/* 카테고리 순위 */}
+        {/* ══════════════════════════════════════
+            카테고리 순위
+        ══════════════════════════════════════ */}
         {active === 'category' && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {Object.keys(catGroups).length === 0 ? (
               <div className="sm:col-span-3 border border-dashed border-border rounded-lg px-6 py-12 text-center">
                 <p className="text-sm text-text-secondary">카테고리 순위 데이터가 없어요</p>
+                <p className="text-xs text-text-tertiary mt-1">수집 후 데이터가 표시됩니다</p>
               </div>
             ) : (
               Object.entries(catGroups).map(([cat, items]) => (
                 <div key={cat}>
                   <SectionDivider tag={cat} />
-                  <ol className="space-y-2">
-                    {items.slice(0, 30).map(item => (
-                      <li key={item.rank_position}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
-                            isBrand(item.product_name) ? 'border-accent/30 bg-accent-bg' : 'border-border bg-surface'
-                          }`}>
-                        <span className={`text-sm font-bold w-7 text-right shrink-0 ${item.rank_position <= 3 ? 'text-accent' : 'text-text-tertiary'}`}>
-                          {item.rank_position}
-                        </span>
-                        <span className={`text-sm truncate ${isBrand(item.product_name) ? 'text-accent font-semibold' : 'text-text-primary'}`}>
+                  <ol className="space-y-1.5">
+                    {items.slice(0, 50).map(item => (
+                      <li
+                        key={item.rank_position}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border ${
+                          item.is_ours ? 'border-accent/30 bg-accent-bg' : 'border-border bg-surface'
+                        }`}
+                      >
+                        <RankBadge pos={item.rank_position} />
+                        <span className={`text-sm truncate flex-1 ${item.is_ours ? 'text-accent font-semibold' : 'text-text-primary'}`}>
                           {item.product_name}
                         </span>
+                        <DeltaBadge delta={item.delta} prevRank={item.prev_rank} />
                       </li>
                     ))}
                   </ol>
@@ -539,6 +643,7 @@ export default function CoupangDashboard() {
             )}
           </div>
         )}
+
       </div>
     </div>
   )
