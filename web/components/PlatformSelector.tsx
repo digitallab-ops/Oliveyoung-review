@@ -6,7 +6,6 @@ const PLATFORMS: { id: Platform; label: string; flag: string; beta?: boolean }[]
   { id: 'oliveyoung', label: '올리브영', flag: '🇰🇷' },
   { id: 'coupang',    label: '쿠팡',     flag: '🛒',  beta: true },
   { id: 'naver',      label: '네이버',   flag: '🟢',  beta: true },
-  { id: 'amazon',     label: '아마존',   flag: '🇺🇸', beta: true },
 ]
 
 interface Props {
