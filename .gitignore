@@ -9,3 +9,11 @@ logs/
 web/.next/
 web/node_modules/
 web/.env.local
+web/tsconfig.tsbuildinfo
+
+# 크롬 프로필 / 임시 파일
+chrome_profile_amazon/
+chrome_profile*/
+venv/
+debug_profile_test.py
+amazon_login_setup.py
