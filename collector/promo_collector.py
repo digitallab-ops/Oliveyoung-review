@@ -92,7 +92,7 @@ MAX_PAGES = 15
 
 def make_session():
     if _USE_CFFI:
-        return cf_requests.Session(impersonate='chrome120')
+        return cf_requests.Session(impersonate='chrome124')
     return cf_requests.Session()
 
 
