@@ -236,6 +236,10 @@ def init_db(conn=None):
                 )
             """)
             cur.execute("""
+                ALTER TABLE promo_monthly_insights_history
+                    ADD COLUMN IF NOT EXISTS action_points TEXT[] NOT NULL DEFAULT '{}'
+            """)
+            cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_promo_insights_history_month
                     ON promo_monthly_insights_history(month, saved_at DESC)
             """)
