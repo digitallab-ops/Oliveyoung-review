@@ -256,6 +256,7 @@ def init_db(conn=None):
 
     if conn is not None:
         _run(conn)
+        conn.commit()
     else:
         with get_conn() as c:
             _run(c)
