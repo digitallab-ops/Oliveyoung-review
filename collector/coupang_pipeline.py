@@ -38,14 +38,14 @@ def _chrome_major_version() -> int:
 
 def _init_driver() -> uc.Chrome:
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-gpu')
     options.add_argument('--lang=ko-KR')
     options.add_argument('--window-size=1280,800')
+    options.add_argument('--window-position=-2400,-2400')
     options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
 
-    driver = uc.Chrome(options=options, version_main=_chrome_major_version())
+    driver = uc.Chrome(options=options, headless=False, version_main=_chrome_major_version())
     driver.get('https://www.coupang.com/')
     time.sleep(4)
     return driver
