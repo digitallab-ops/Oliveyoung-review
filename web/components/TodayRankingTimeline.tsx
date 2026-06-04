@@ -1,6 +1,5 @@
 'use client'
 
-import { LineChart, Line, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { OurRankingTimelineEntry } from '@/lib/types'
 import SectionDivider from '@/components/SectionDivider'
 
@@ -13,73 +12,6 @@ function fmtHour(h: number): string {
 }
 
 const CATEGORY_ORDER = ['전체', '스킨케어', '마스크팩', '클렌징', '선케어', '더모 코스메틱', '바디케어', '맨즈에딧']
-
-function SparkTooltip({ active, payload }: any) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  if (d.pos == null) return null
-  return (
-    <div className="bg-gray-900 text-white text-xs px-2 py-1 rounded-md shadow-lg">
-      {fmtHour(d.h)} · <strong>{d.pos}위</strong>
-    </div>
-  )
-}
-
-function SparkLine({
-  snaps, allHours,
-}: {
-  snaps: { rank_hour: number; rank_position: number }[]
-  allHours: number[]
-}) {
-  const snapMap = new Map(snaps.map(s => [s.rank_hour, s.rank_position]))
-  const chartData = allHours.map(h => ({ h, pos: snapMap.get(h) }))
-
-  const positions = snaps.map(s => s.rank_position)
-  const bestPos   = Math.min(...positions)
-  const firstPos  = snapMap.get(allHours[0])
-  const lastPos   = snapMap.get(allHours[allHours.length - 1])
-  const delta     = firstPos != null && lastPos != null ? firstPos - lastPos : null
-
-  return (
-    <div className="flex items-center gap-3 flex-1 min-w-0">
-      {/* 스파크라인 */}
-      <div className="flex-1 min-w-[80px]">
-        <ResponsiveContainer width="100%" height={48}>
-          <LineChart data={chartData} margin={{ top: 6, right: 4, left: 0, bottom: 6 }}>
-            <YAxis domain={['dataMax + 2', 'dataMin - 2']} hide reversed />
-            <Tooltip content={<SparkTooltip />} />
-            <Line
-              type="monotone"
-              dataKey="pos"
-              stroke="#EA580C"
-              strokeWidth={2}
-              dot={{ r: 3, fill: '#EA580C', strokeWidth: 0 }}
-              activeDot={{ r: 4, fill: '#C2410C' }}
-              connectNulls={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* 현재 순위 + 변동 */}
-      <div className="shrink-0 text-right min-w-[56px]">
-        {lastPos != null && (
-          <p className={`text-sm font-bold leading-tight ${lastPos === bestPos ? 'text-accent' : 'text-text-primary'}`}>
-            {lastPos === bestPos && <span className="mr-0.5">✦</span>}{lastPos}위
-          </p>
-        )}
-        {delta != null && delta !== 0 && (
-          <p className={`text-[11px] font-medium leading-tight ${delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {delta > 0 ? `▲${delta}` : `▼${Math.abs(delta)}`}
-          </p>
-        )}
-        {bestPos <= 3 && lastPos !== bestPos && lastPos != null && (
-          <p className="text-[10px] text-accent/60 leading-tight">최고 {bestPos}위</p>
-        )}
-      </div>
-    </div>
-  )
-}
 
 export default function TodayRankingTimeline({ data }: Props) {
   if (data.length === 0) return (
@@ -151,27 +83,41 @@ export default function TodayRankingTimeline({ data }: Props) {
           if (allHours.length < 2) return null
 
           return (
-            <div key={goods_no} className="border border-border rounded-lg bg-surface p-4 space-y-3">
+            <div key={goods_no} className="border border-border rounded-lg bg-surface p-4 space-y-2">
               <p className="text-sm font-semibold text-text-primary">★ {prod.goods_name}</p>
+              <div className="divide-y divide-border/50">
+                {sortedCats.map(([catName, snaps]) => {
+                  const sorted    = [...snaps].sort((a, b) => a.rank_hour - b.rank_hour)
+                  const firstSnap = sorted[0]
+                  const lastSnap  = sorted[sorted.length - 1]
+                  const firstPos  = firstSnap.rank_position
+                  const lastPos   = lastSnap.rank_position
+                  const delta     = firstPos - lastPos
+                  const bestPos   = Math.min(...snaps.map(s => s.rank_position))
+                  const isBest    = lastPos === bestPos
 
-              {/* 시간 축 헤더 */}
-              <div className="flex items-center gap-3 px-0">
-                <span className="shrink-0 w-24 text-[11px] text-text-tertiary">카테고리</span>
-                <div className="flex-1 flex justify-between text-[10px] text-text-tertiary px-1">
-                  {allHours.map(h => (
-                    <span key={h}>{h}시</span>
-                  ))}
-                </div>
-                <span className="shrink-0 min-w-[56px] text-[11px] text-text-tertiary text-right">최신</span>
-              </div>
-
-              <div className="divide-y divide-border/50 -mx-1">
-                {sortedCats.map(([catName, snaps]) => (
-                  <div key={catName} className="flex items-center gap-3 py-1.5 px-1">
-                    <span className="shrink-0 text-xs text-text-secondary w-24 truncate">{catName}</span>
-                    <SparkLine snaps={snaps} allHours={allHours} />
-                  </div>
-                ))}
+                  return (
+                    <div key={catName} className="flex items-center gap-3 py-2">
+                      <span className="shrink-0 text-xs text-text-secondary w-24 truncate">{catName}</span>
+                      <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                        <span className="text-text-tertiary">{firstPos}위</span>
+                        <span className="text-text-tertiary">→</span>
+                        <span className={isBest ? 'text-accent font-bold' : ''}>{lastPos}위</span>
+                      </div>
+                      {delta !== 0 && (
+                        <span className={`text-xs font-semibold ${delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {delta > 0 ? `▲${delta}` : `▼${Math.abs(delta)}`}
+                        </span>
+                      )}
+                      {bestPos <= 3 && lastPos !== bestPos && (
+                        <span className="text-[10px] text-accent/70 ml-1">최고 {bestPos}위</span>
+                      )}
+                      <span className="text-[10px] text-text-tertiary ml-auto">
+                        {fmtHour(firstSnap.rank_hour)} ~ {fmtHour(lastSnap.rank_hour)}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )
