@@ -76,10 +76,13 @@ BASE_HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,*/*;q=0.9',
 }
 
-# 올영픽 — 매월 갱신되는 기획전 페이지 (dispCatNo 고정, 상품만 교체)
-# 다음 달 변경 시 여기서 dispCatNo 업데이트 필요할 수 있음
+# 올영픽 — 매월 기획전 교체. dispCatNo를 이벤트 목록에서 자동 탐색
 OLIVEPICK_URL = 'https://www.oliveyoung.co.kr/store/planshop/getPlanShopDetail.do'
-OLIVEPICK_CAT = '500000100018752'
+OLIVEPICK_CAT = '500000100018921'  # fallback — 자동 탐색 실패 시 사용
+
+EVENT_LIST_URL = 'https://www.oliveyoung.co.kr/store/main/getEventList.do'
+OLIVEPICK_EVT_KEYWORDS = ['올영PICK', '올영픽', 'OLIVEYOUNG PICK']
+BRAND_EVT_KEYWORDS = ['셀퓨전씨', 'cellfusionc', 'cell fusion c']
 
 # 오특
 HOTDEAL_MAIN_URL = 'https://www.oliveyoung.co.kr/store/main/getHotdealList.do'
@@ -94,6 +97,61 @@ def make_session():
     if _USE_CFFI:
         return cf_requests.Session(impersonate='chrome124')
     return cf_requests.Session()
+
+
+def fetch_olivepick_catno(session) -> str | None:
+    """이벤트 목록에서 올영픽 dispCatNo 동적 탐색"""
+    try:
+        r = session.get(EVENT_LIST_URL, headers=BASE_HEADERS, timeout=20)
+        if r.status_code != 200:
+            return None
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for li in soup.find_all('li'):
+            evtNm_el = li.find('input', {'name': 'evtNm'})
+            if not evtNm_el:
+                continue
+            if any(k in evtNm_el.get('value', '') for k in OLIVEPICK_EVT_KEYWORDS):
+                urlInfo_el = li.find('input', {'name': 'urlInfo'})
+                if urlInfo_el:
+                    m = re.search(r'dispCatNo=(\d+)', urlInfo_el.get('value', ''))
+                    if m:
+                        return m.group(1)
+    except Exception as e:
+        print(f'  올영픽 자동 탐색 실패: {e}')
+    return None
+
+
+def fetch_brand_events(session) -> list[dict]:
+    """이벤트 목록에서 셀퓨전씨 관련 이벤트 탐색"""
+    try:
+        r = session.get(EVENT_LIST_URL, headers=BASE_HEADERS, timeout=20)
+        if r.status_code != 200:
+            return []
+        soup = BeautifulSoup(r.text, 'html.parser')
+        results = []
+        for li in soup.find_all('li'):
+            evtNm_el = li.find('input', {'name': 'evtNm'})
+            title_el = li.find('input', {'name': 'originalTitle'})
+            urlInfo_el = li.find('input', {'name': 'urlInfo'})
+            evt_nm = evtNm_el.get('value', '') if evtNm_el else ''
+            title = title_el.get('value', '') if title_el else ''
+            url_info = urlInfo_el.get('value', '') if urlInfo_el else ''
+            if not (evt_nm or title):
+                continue
+            combined = (evt_nm + ' ' + title).lower()
+            if any(k.lower() in combined for k in BRAND_EVT_KEYWORDS):
+                date_el = li.select_one('.evt_date, .date, [class*="date"]')
+                date_txt = date_el.get_text(strip=True) if date_el else ''
+                results.append({
+                    'evt_nm': evt_nm,
+                    'title': title,
+                    'url': url_info,
+                    'period': date_txt,
+                })
+        return results
+    except Exception as e:
+        print(f'  브랜드 이벤트 탐색 실패: {e}')
+        return []
 
 
 def parse_prd_info(html: str) -> list[dict]:
@@ -117,11 +175,11 @@ def parse_prd_info(html: str) -> list[dict]:
     return results
 
 
-def fetch_olivepick(session) -> list[dict]:
+def fetch_olivepick(session, catno: str = OLIVEPICK_CAT) -> list[dict]:
     """올영픽 기획전 페이지 전체 파싱 (카테고리 섹션 포함)"""
     r = session.get(
         OLIVEPICK_URL,
-        params={'dispCatNo': OLIVEPICK_CAT},
+        params={'dispCatNo': catno},
         headers=BASE_HEADERS,
         timeout=20,
     )
@@ -281,10 +339,45 @@ def run():
 
         print(f'자사 상품 {len(our_goods)}개 기준\n')
 
-        # ── 올영픽 ──
+        # ── 올영픽 — 자동 탐색 후 fallback ──
+        print('[올영픽] dispCatNo 자동 탐색...')
+        detected_catno = fetch_olivepick_catno(session)
+        if detected_catno:
+            if detected_catno != OLIVEPICK_CAT:
+                print(f'  새 dispCatNo 감지: {detected_catno} (기존: {OLIVEPICK_CAT})')
+                send_alert(
+                    f'[올영픽] 새 기획전 감지 ({today})\n'
+                    f'dispCatNo: {detected_catno}\n'
+                    f'promo_collector.py OLIVEPICK_CAT를 업데이트하세요.'
+                )
+            else:
+                print(f'  dispCatNo 확인: {detected_catno}')
+        else:
+            print(f'  자동 탐색 실패 — fallback: {OLIVEPICK_CAT}')
+        active_catno = detected_catno or OLIVEPICK_CAT
+        time.sleep(1)
+
+        # ── 브랜드 이벤트 탐색 ──
+        print('[브랜드 이벤트] 셀퓨전씨 이벤트 탐색...')
+        brand_evts = fetch_brand_events(session)
+        if brand_evts:
+            for evt in brand_evts:
+                print(f'  발견: {evt["evt_nm"]} | {evt["title"]} | {evt["period"]}')
+            names = ', '.join(e['evt_nm'] for e in brand_evts)
+            send_alert(
+                f'[셀퓨전씨 이벤트 발견] {today}\n'
+                + '\n'.join(
+                    f'· {e["evt_nm"]} — {e["title"]} ({e["period"]})\n  {e["url"]}'
+                    for e in brand_evts
+                )
+            )
+        else:
+            print('  셀퓨전씨 이벤트 없음')
+        time.sleep(1)
+
         print('[올영픽] 수집 중...')
         try:
-            items = fetch_olivepick(session)
+            items = fetch_olivepick(session, active_catno)
             print(f'  총 {len(items)}개 상품')
             if items:
                 save_items(conn, 'olivepick', items, our_goods, today)
