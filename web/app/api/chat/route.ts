@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { NextResponse } from 'next/server'
 import {
   getStats, getMarketRankings, getPromoStatus, getNegativeAlerts,
@@ -10,11 +10,11 @@ import {
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'gpt-4o-mini'
 
-let _client: Anthropic | null = null
+let _client: OpenAI | null = null
 function getClient() {
-  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   return _client
 }
 
@@ -99,116 +99,157 @@ const SYSTEM         = SYSTEM_BASE + '\n\n현재 보고 있는 탭: 올리브영
 const SYSTEM_COUPANG = SYSTEM_BASE + '\n\n현재 보고 있는 탭: 쿠팡'
 const SYSTEM_NAVER   = SYSTEM_BASE + '\n\n현재 보고 있는 탭: 네이버'
 
-const TOOLS: Anthropic.Tool[] = [
+const TOOLS: OpenAI.ChatCompletionTool[] = [
   // ── 올리브영 ──
   {
-    name: 'get_stats',
-    description: '셀퓨전씨 올리브영 전체 현황. 총 리뷰 수, 평균 별점, 5점 비율, 재구매율, 상품 수.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_market_rankings',
-    description: '올리브영 카테고리별 베스트 순위 Top 20. 셀퓨전씨 상품은 is_ours=true. 카테고리: 전체·스킨케어·마스크팩·클렌징·선케어·더모 코스메틱·바디케어·맨즈에딧.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        category: { type: 'string', description: '카테고리명. 전체 보려면 빈 문자열.' },
-      },
-      required: [],
+    type: 'function',
+    function: {
+      name: 'get_stats',
+      description: '셀퓨전씨 올리브영 전체 현황. 총 리뷰 수, 평균 별점, 5점 비율, 재구매율, 상품 수.',
+      parameters: { type: 'object', properties: {}, required: [] },
     },
   },
   {
-    name: 'get_promo_status',
-    description: '오늘 기준 올영픽·오늘의 특가 입점 현황과 셀퓨전씨 포함 여부/순위.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_negative_alerts',
-    description: '최근 7일 부정 리뷰(별점 1~2점) 전주 대비 50%+ 급증 상품과 주요 키워드.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_product_stats',
-    description: '셀퓨전씨 전 상품의 리뷰 수, 평균 별점, 재구매율. 상품명으로 goods_no 찾을 때도 먼저 호출.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'get_insights',
-    description: '긍정/부정 키워드 Top 8과 피부 타입 분포. goods_no 지정 시 해당 상품 기준, 미지정 시 전체 브랜드.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        goods_no: { type: 'string', description: '상품 번호. 전체 브랜드면 빈 문자열.' },
+    type: 'function',
+    function: {
+      name: 'get_market_rankings',
+      description: '올리브영 카테고리별 베스트 순위 Top 20. 셀퓨전씨 상품은 is_ours=true. 카테고리: 전체·스킨케어·마스크팩·클렌징·선케어·더모 코스메틱·바디케어·맨즈에딧.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: '카테고리명. 전체 보려면 빈 문자열.' },
+        },
+        required: [],
       },
-      required: [],
     },
   },
   {
-    name: 'get_new_products',
-    description: '최근 30일 내 첫 리뷰 등록된 신규 상품. 일평균 리뷰 속도와 긍정·부정 비율.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_promo_status',
+      description: '오늘 기준 올영픽·오늘의 특가 입점 현황과 셀퓨전씨 포함 여부/순위.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_today_ranking',
-    description: '오늘 시간대별 셀퓨전씨 자사 상품 순위 타임라인.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_negative_alerts',
+      description: '최근 7일 부정 리뷰(별점 1~2점) 전주 대비 50%+ 급증 상품과 주요 키워드.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_product_stats',
+      description: '셀퓨전씨 전 상품의 리뷰 수, 평균 별점, 재구매율. 상품명으로 goods_no 찾을 때도 먼저 호출.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_insights',
+      description: '긍정/부정 키워드 Top 8과 피부 타입 분포. goods_no 지정 시 해당 상품 기준, 미지정 시 전체 브랜드.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goods_no: { type: 'string', description: '상품 번호. 전체 브랜드면 빈 문자열.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_new_products',
+      description: '최근 30일 내 첫 리뷰 등록된 신규 상품. 일평균 리뷰 속도와 긍정·부정 비율.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_today_ranking',
+      description: '오늘 시간대별 셀퓨전씨 자사 상품 순위 타임라인.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   // ── 쿠팡 ──
   {
-    name: 'get_coupang_stats',
-    description: '[쿠팡] 수집 상품 수, 총 리뷰 수, 평균 평점, 마지막 수집 시각.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_coupang_stats',
+      description: '[쿠팡] 수집 상품 수, 총 리뷰 수, 평균 평점, 마지막 수집 시각.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_coupang_product_stats',
-    description: '[쿠팡] 셀퓨전씨 상품별 리뷰 수, 평균 평점.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_coupang_product_stats',
+      description: '[쿠팡] 셀퓨전씨 상품별 리뷰 수, 평균 평점.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_coupang_rankings',
-    description: '[쿠팡] 검색순위와 카테고리 베스트셀러 순위. 자사 노출 현황 포함.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_coupang_rankings',
+      description: '[쿠팡] 검색순위와 카테고리 베스트셀러 순위. 자사 노출 현황 포함.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_coupang_reviews',
-    description: '[쿠팡] 실구매 리뷰 내용. 소비자 반응, 불만, 칭찬 파악. 특정 상품 지정 가능.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        product_id: { type: 'string', description: '특정 상품 ID. 전체 브랜드면 빈 문자열.' },
+    type: 'function',
+    function: {
+      name: 'get_coupang_reviews',
+      description: '[쿠팡] 실구매 리뷰 내용. 소비자 반응, 불만, 칭찬 파악. 특정 상품 지정 가능.',
+      parameters: {
+        type: 'object',
+        properties: {
+          product_id: { type: 'string', description: '특정 상품 ID. 전체 브랜드면 빈 문자열.' },
+        },
+        required: [],
       },
-      required: [],
     },
   },
   // ── 네이버 ──
   {
-    name: 'get_naver_trends',
-    description: '[네이버] DataLab 검색 트렌드. 최근 8주 주간 검색지수(0~100).',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_naver_trends',
+      description: '[네이버] DataLab 검색 트렌드. 최근 8주 주간 검색지수(0~100).',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_naver_search_ranks',
-    description: '[네이버] 쇼핑 키워드 검색 순위. 자사 상품 노출 위치(is_ours=true).',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_naver_search_ranks',
+      description: '[네이버] 쇼핑 키워드 검색 순위. 자사 상품 노출 위치(is_ours=true).',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_naver_market',
-    description: '[네이버] 카테고리별 경쟁사 상품 목록. 브랜드별 가격 분포.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_naver_market',
+      description: '[네이버] 카테고리별 경쟁사 상품 목록. 브랜드별 가격 분포.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
   {
-    name: 'get_naver_insight',
-    description: '[네이버] 가장 최근 자동 생성된 AI 네이버 시장 분석 인사이트.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    type: 'function',
+    function: {
+      name: 'get_naver_insight',
+      description: '[네이버] 가장 최근 자동 생성된 AI 네이버 시장 분석 인사이트.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
   },
 ]
-
-// Last tool gets cache_control so Claude's tool list is cached with the system prompt
-const TOOLS_CACHED = TOOLS.map((t, i) =>
-  i === TOOLS.length - 1
-    ? { ...t, cache_control: { type: 'ephemeral' as const } }
-    : t
-) as Anthropic.Tool[]
 
 async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
   switch (name) {
@@ -275,13 +316,16 @@ export async function POST(req: Request) {
     const activeSystemText = platform === 'coupang' ? SYSTEM_COUPANG
                            : platform === 'naver'   ? SYSTEM_NAVER
                            : SYSTEM
-    const activeSystem = [{ type: 'text' as const, text: activeSystemText, cache_control: { type: 'ephemeral' as const } }]
 
     const client = getClient()
-    const currentMessages: Anthropic.MessageParam[] = messages.slice(-10).map(m => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }))
+
+    const msgs: OpenAI.ChatCompletionMessageParam[] = [
+      { role: 'system', content: activeSystemText },
+      ...messages.slice(-10).map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    ]
 
     const encoder = new TextEncoder()
 
@@ -291,41 +335,64 @@ export async function POST(req: Request) {
           let rounds = 0
 
           while (rounds <= 3) {
-            const msgStream = client.messages.stream({
+            const stream = await client.chat.completions.create({
               model: MODEL,
               max_tokens: 1500,
-              system: activeSystem,
-              messages: currentMessages,
-              tools: TOOLS_CACHED,
+              messages: msgs,
+              tools: TOOLS,
+              stream: true,
             })
 
-            for await (const event of msgStream) {
-              if (
-                event.type === 'content_block_delta' &&
-                event.delta.type === 'text_delta'
-              ) {
-                controller.enqueue(encoder.encode(event.delta.text))
+            let finishReason: string | null = null
+            const toolCallAccum: Record<number, { id: string; name: string; arguments: string }> = {}
+
+            for await (const chunk of stream) {
+              const choice = chunk.choices[0]
+              if (!choice) continue
+              if (choice.finish_reason) finishReason = choice.finish_reason
+
+              const delta = choice.delta
+              if (delta.content) {
+                controller.enqueue(encoder.encode(delta.content))
+              }
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index
+                  if (!toolCallAccum[idx]) toolCallAccum[idx] = { id: '', name: '', arguments: '' }
+                  if (tc.id) toolCallAccum[idx].id = tc.id
+                  if (tc.function?.name) toolCallAccum[idx].name += tc.function.name
+                  if (tc.function?.arguments) toolCallAccum[idx].arguments += tc.function.arguments
+                }
               }
             }
 
-            const finalMsg = await msgStream.finalMessage()
-            if (finalMsg.stop_reason !== 'tool_use' || rounds >= 3) break
+            if (finishReason !== 'tool_calls' || rounds >= 3) break
 
             rounds++
-            currentMessages.push({ role: 'assistant', content: finalMsg.content })
 
-            const toolBlocks = finalMsg.content.filter(b => b.type === 'tool_use') as Anthropic.ToolUseBlock[]
-            const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
-              toolBlocks.map(async block => {
-                const result = await executeToolCached(block.name, block.input as Record<string, unknown>)
-                return {
-                  type: 'tool_result' as const,
-                  tool_use_id: block.id,
-                  content: JSON.stringify(result),
-                }
+            const toolCalls = Object.values(toolCallAccum)
+
+            msgs.push({
+              role: 'assistant',
+              content: null,
+              tool_calls: toolCalls.map(tc => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            })
+
+            const toolResults = await Promise.all(
+              toolCalls.map(async tc => {
+                const input = JSON.parse(tc.arguments || '{}')
+                const result = await executeToolCached(tc.name, input)
+                return { tool_call_id: tc.id, content: JSON.stringify(result) }
               })
             )
-            currentMessages.push({ role: 'user', content: toolResults })
+
+            for (const r of toolResults) {
+              msgs.push({ role: 'tool', tool_call_id: r.tool_call_id, content: r.content })
+            }
           }
         } catch (e) {
           console.error('Stream error:', e)
