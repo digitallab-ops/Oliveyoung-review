@@ -4,7 +4,7 @@ import time
 import random
 import re
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 
 try:
     from curl_cffi import requests as cf_requests
@@ -116,9 +116,11 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
 
 
 def run():
-    rank_hour = datetime.now(timezone.utc).hour  # DB(UTC)와 맞추기 위해 UTC 기준
-    kst_hour = datetime.now().hour
-    print(f"=== 올리브영 카테고리 랭킹 수집 ({date.today()} {kst_hour:02d}시 KST / UTC {rank_hour:02d}시) ===\n")
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    rank_hour = now_kst.hour
+    rank_date = now_kst.date()
+    print(f"=== 올리브영 카테고리 랭킹 수집 ({rank_date} {rank_hour:02d}시 KST) ===")
 
     conn = get_conn()
     conn.autocommit = True
@@ -149,20 +151,20 @@ def run():
                     for rank, item in enumerate(ranking, 1):
                         cur.execute("""
                             INSERT INTO market_rankings (rank_date, rank_hour, category_name, rank_position, goods_no, goods_name)
-                            VALUES (CURRENT_DATE, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s)
                             ON CONFLICT (rank_date, rank_hour, category_name, rank_position)
                             DO UPDATE SET goods_no = EXCLUDED.goods_no, goods_name = EXCLUDED.goods_name
-                        """, (rank_hour, cat_name, rank, item['goods_no'], item['name']))
+                        """, (rank_date, rank_hour, cat_name, rank, item['goods_no'], item['name']))
 
                     # product_rankings: 자사 상품만
                     hits = [(i + 1, item) for i, item in enumerate(ranking) if item['goods_no'] in our_goods]
                     for rank, item in hits:
                         cur.execute("""
                             INSERT INTO product_rankings (rank_date, goods_no, category_name, rank_position)
-                            VALUES (CURRENT_DATE, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s)
                             ON CONFLICT (rank_date, goods_no, category_name)
                             DO UPDATE SET rank_position = EXCLUDED.rank_position
-                        """, (item['goods_no'], cat_name, rank))
+                        """, (rank_date, item['goods_no'], cat_name, rank))
 
                 total_saved += len(ranking)
                 print(f"  전체 {len(ranking)}개 저장", end='')
