@@ -10,7 +10,7 @@ import {
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
-const MODEL = 'gpt-4o-mini'
+const MODEL = 'gpt-4o'
 
 let _client: OpenAI | null = null
 function getClient() {
