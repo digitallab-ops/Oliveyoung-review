@@ -18,6 +18,35 @@ function getClient() {
   return _client
 }
 
+// ── In-memory TTL cache ──
+const _cache = new Map<string, { data: unknown; exp: number }>()
+function fromCache<T>(key: string): T | null {
+  const hit = _cache.get(key)
+  if (!hit || Date.now() > hit.exp) return null
+  return hit.data as T
+}
+function toCache(key: string, data: unknown, ttlMs: number) {
+  _cache.set(key, { data, exp: Date.now() + ttlMs })
+}
+const TOOL_TTL: Record<string, number> = {
+  get_stats:                 5 * 60_000,
+  get_market_rankings:       5 * 60_000,
+  get_promo_status:         10 * 60_000,
+  get_negative_alerts:       5 * 60_000,
+  get_product_stats:         5 * 60_000,
+  get_insights:              5 * 60_000,
+  get_new_products:          5 * 60_000,
+  get_today_ranking:         2 * 60_000,
+  get_coupang_stats:         5 * 60_000,
+  get_coupang_product_stats: 5 * 60_000,
+  get_coupang_rankings:      5 * 60_000,
+  get_coupang_reviews:       5 * 60_000,
+  get_naver_trends:         10 * 60_000,
+  get_naver_search_ranks:    5 * 60_000,
+  get_naver_market:          5 * 60_000,
+  get_naver_insight:        10 * 60_000,
+}
+
 const SYSTEM_BASE = `당신은 셀퓨전씨 전속 멀티플랫폼 인사이트 파트너입니다. 올리브영·쿠팡·네이버 세 플랫폼의 실시간 데이터를 모두 활용해 브랜드 전략을 조언합니다.
 
 연결된 데이터:
@@ -174,6 +203,13 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ]
 
+// Last tool gets cache_control so Claude's tool list is cached with the system prompt
+const TOOLS_CACHED = TOOLS.map((t, i) =>
+  i === TOOLS.length - 1
+    ? { ...t, cache_control: { type: 'ephemeral' as const } }
+    : t
+) as Anthropic.Tool[]
+
 async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case 'get_coupang_stats':
@@ -215,6 +251,16 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
   }
 }
 
+async function executeToolCached(name: string, input: Record<string, unknown>): Promise<unknown> {
+  const key = `${name}:${JSON.stringify(input)}`
+  const cached = fromCache(key)
+  if (cached !== null) return cached
+  const result = await executeTool(name, input)
+  const ttl = TOOL_TTL[name]
+  if (ttl) toCache(key, result, ttl)
+  return result
+}
+
 export async function POST(req: Request) {
   try {
     const { messages, platform } = await req.json() as {
@@ -226,59 +272,77 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'messages required' }, { status: 400 })
     }
 
-    const activeSystem = platform === 'coupang' ? SYSTEM_COUPANG
-                       : platform === 'naver'   ? SYSTEM_NAVER
-                       : SYSTEM
+    const activeSystemText = platform === 'coupang' ? SYSTEM_COUPANG
+                           : platform === 'naver'   ? SYSTEM_NAVER
+                           : SYSTEM
+    const activeSystem = [{ type: 'text' as const, text: activeSystemText, cache_control: { type: 'ephemeral' as const } }]
 
     const client = getClient()
-    const working: Anthropic.MessageParam[] = messages.slice(-10).map(m => ({
+    const currentMessages: Anthropic.MessageParam[] = messages.slice(-10).map(m => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }))
 
-    let response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1500,
-      system: activeSystem,
-      messages: working,
-      tools: TOOLS,
+    const encoder = new TextEncoder()
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          let rounds = 0
+
+          while (rounds <= 3) {
+            const msgStream = client.messages.stream({
+              model: MODEL,
+              max_tokens: 1500,
+              system: activeSystem,
+              messages: currentMessages,
+              tools: TOOLS_CACHED,
+            })
+
+            for await (const event of msgStream) {
+              if (
+                event.type === 'content_block_delta' &&
+                event.delta.type === 'text_delta'
+              ) {
+                controller.enqueue(encoder.encode(event.delta.text))
+              }
+            }
+
+            const finalMsg = await msgStream.finalMessage()
+            if (finalMsg.stop_reason !== 'tool_use' || rounds >= 3) break
+
+            rounds++
+            currentMessages.push({ role: 'assistant', content: finalMsg.content })
+
+            const toolBlocks = finalMsg.content.filter(b => b.type === 'tool_use') as Anthropic.ToolUseBlock[]
+            const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+              toolBlocks.map(async block => {
+                const result = await executeToolCached(block.name, block.input as Record<string, unknown>)
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: block.id,
+                  content: JSON.stringify(result),
+                }
+              })
+            )
+            currentMessages.push({ role: 'user', content: toolResults })
+          }
+        } catch (e) {
+          console.error('Stream error:', e)
+          controller.enqueue(encoder.encode('\n[오류가 발생했습니다]'))
+        } finally {
+          controller.close()
+        }
+      },
     })
 
-    // Tool-use 루프 (최대 3 라운드)
-    let rounds = 0
-
-    while (response.stop_reason === 'tool_use' && rounds < 3) {
-      rounds++
-
-      working.push({ role: 'assistant', content: response.content })
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = []
-      for (const block of response.content) {
-        if (block.type !== 'tool_use') continue
-        const result = await executeTool(block.name, block.input as Record<string, unknown>)
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        })
-      }
-      working.push({ role: 'user', content: toolResults })
-
-      response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 1500,
-        system: activeSystem,
-        messages: working,
-        tools: TOOLS,
-      })
-    }
-
-    const reply = response.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as Anthropic.TextBlock).text)
-      .join('\n')
-
-    return NextResponse.json({ reply })
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+      },
+    })
   } catch (e) {
     console.error('Chat API error:', e)
     return NextResponse.json({ error: '답변 생성 중 오류가 발생했습니다.' }, { status: 500 })

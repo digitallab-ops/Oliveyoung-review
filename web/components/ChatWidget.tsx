@@ -68,11 +68,36 @@ export default function ChatWidget() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: next.slice(-10), platform }),
       })
-      const data = await res.json()
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.reply || data.error || '응답을 받지 못했습니다.',
-      }])
+
+      if (!res.ok || !res.body) throw new Error('stream unavailable')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let started = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        if (!started) {
+          started = true
+          setLoading(false)
+          setMessages(prev => [...prev, { role: 'assistant', content: chunk }])
+        } else {
+          setMessages(prev => {
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              role: 'assistant',
+              content: updated[updated.length - 1].content + chunk,
+            }
+            return updated
+          })
+        }
+      }
+
+      if (!started) {
+        setMessages(prev => [...prev, { role: 'assistant', content: '응답을 받지 못했습니다.' }])
+      }
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
