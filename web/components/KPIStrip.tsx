@@ -7,11 +7,11 @@ interface KPIStripProps {
 
 export default function KPIStrip({ stats }: KPIStripProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 md:gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
 
-      {/* 핵심 지표: 평균 평점 — 2열 차지 */}
+      {/* 핵심 지표: 평균 평점 */}
       <div
-        className="relative group/kpi sm:col-span-2 rounded-xl px-5 py-6 border overflow-hidden
+        className="relative group/kpi rounded-xl px-5 py-6 border overflow-hidden
                    transition-all duration-200 hover:shadow-card-hover"
         style={{
           background: 'rgba(22,163,74,0.08)',
@@ -22,7 +22,7 @@ export default function KPIStrip({ stats }: KPIStripProps) {
         <div className="absolute top-0 left-0 right-0 h-[4px]" style={{ backgroundColor: '#16A34A', opacity: 0.7 }} />
         <InfoTooltip text="전체 리뷰의 가중 평균 평점입니다." />
         <p className="text-xs text-text-secondary mb-2 font-medium">평균 평점</p>
-        <p className="text-[4rem] md:text-[4.8rem] font-bold leading-none mb-2 [font-variant-numeric:tabular-nums]" style={{ color: '#16A34A' }}>
+        <p className="text-[2rem] md:text-[2.4rem] font-bold leading-none mb-2 [font-variant-numeric:tabular-nums]" style={{ color: '#16A34A' }}>
           {stats.avg_score.toFixed(1)}
         </p>
         <p className="text-xs text-text-secondary/70">총 {stats.total_reviews.toLocaleString()}개 리뷰</p>

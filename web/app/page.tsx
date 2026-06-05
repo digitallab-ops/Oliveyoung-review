@@ -77,7 +77,7 @@ export default async function Page() {
     <div className="min-h-screen bg-background">
       {/* 헤더 */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border-subtle">
-        <div className="mx-auto max-w-[1280px] px-4 md:px-6 h-14 flex items-center justify-between">
+        <div className="mx-auto max-w-[1600px] px-4 md:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="font-label text-xs tracking-[0.12em] uppercase text-text-primary font-medium">
               CellFusionC
