@@ -1,8 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import type { MarketCategoryData, Insights, ProductNegativeData } from './types'
 import { pool } from './db'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+let _client: OpenAI | null = null
+function getClient() {
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _client
+}
+
+const MODEL = 'gpt-5.4-mini'
 
 const NO_MARKDOWN_SYSTEM = '당신은 올리브영 뷰티 시장 전문 분석가입니다. 출력 규칙: 1) 모든 줄은 반드시 "- "로 시작하세요. 2) 마크다운 서식 금지(#, ##, **, __, >, `, ~, 이모지 등). 3) 데이터 재나열 금지 — 해석과 판단만 써라. 4) 각 bullet은 마케터가 즉시 행동할 수 있는 하나의 전략적 결론을 담아야 한다. 5) bullet 사이 빈 줄 없이 연속 작성.'
 
@@ -11,10 +17,21 @@ function getKSTDateStr(): string {
   return kst.toISOString().slice(0, 10)
 }
 
-// 6시 수집 → 'am', 16시 수집 → 'pm' (KST 기준)
 function getSlot(): 'am' | 'pm' {
   const kstHour = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours()
   return kstHour < 13 ? 'am' : 'pm'
+}
+
+async function chat(system: string, user: string, maxTokens: number): Promise<string> {
+  const res = await getClient().chat.completions.create({
+    model: MODEL,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user',   content: user },
+    ],
+  })
+  return res.choices[0].message.content?.trim() ?? ''
 }
 
 // ──────────────────────────────────────────
@@ -83,7 +100,7 @@ export async function generateDailyBrief(
   insights: Insights,
   negativeData: ProductNegativeData[]
 ): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY) return ''
+  if (!process.env.OPENAI_API_KEY) return ''
 
   const todayStr = getKSTDateStr()
 
@@ -96,13 +113,7 @@ export async function generateDailyBrief(
   } catch { /* 테이블 없으면 skip */ }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      system: NO_MARKDOWN_SYSTEM,
-      messages: [{ role: 'user', content: buildDailyBriefPrompt(marketData, insights, negativeData) }],
-    })
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    const text = await chat(NO_MARKDOWN_SYSTEM, buildDailyBriefPrompt(marketData, insights, negativeData), 1000)
     if (!text) return ''
 
     await pool.query(`
@@ -183,7 +194,7 @@ ${ours.length ? ours.join(', ') : 'TOP100 없음'}
 }
 
 export async function generateMarketInsight(data: MarketCategoryData[]): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY || data.length === 0) return ''
+  if (!process.env.OPENAI_API_KEY || data.length === 0) return ''
 
   const todayStr = getKSTDateStr()
   const slot = getSlot()
@@ -197,13 +208,7 @@ export async function generateMarketInsight(data: MarketCategoryData[]): Promise
   } catch { /* 테이블 없으면 skip */ }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      system: NO_MARKDOWN_SYSTEM,
-      messages: [{ role: 'user', content: buildMarketPrompt(data) }],
-    })
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    const text = await chat(NO_MARKDOWN_SYSTEM, buildMarketPrompt(data), 1000)
     if (!text) return ''
 
     await pool.query(`
@@ -255,6 +260,40 @@ ${productIssues.join('\n')}
 - 각 2문장 이내, 제목줄 작성 금지, 바로 - 로 시작`
 }
 
+export async function generateReviewInsight(
+  insights: Insights,
+  negativeData: ProductNegativeData[]
+): Promise<string> {
+  if (!process.env.OPENAI_API_KEY || insights.total_reviews === 0) return ''
+
+  const todayStr = getKSTDateStr()
+
+  try {
+    const cached = await pool.query(
+      'SELECT insight_text FROM review_insights WHERE insight_date = $1',
+      [todayStr]
+    )
+    if (cached.rows[0]?.insight_text) return cached.rows[0].insight_text
+  } catch { /* 테이블 없으면 skip */ }
+
+  try {
+    const text = await chat(NO_MARKDOWN_SYSTEM, buildReviewPrompt(insights, negativeData), 1500)
+    if (!text) return ''
+
+    await pool.query(`
+      INSERT INTO review_insights (insight_date, insight_text)
+      VALUES ($1, $2)
+      ON CONFLICT (insight_date) DO UPDATE
+      SET insight_text = EXCLUDED.insight_text, generated_at = NOW()
+    `, [todayStr, text])
+
+    return text
+  } catch (e) {
+    console.error('Review insight generation failed:', e)
+    return ''
+  }
+}
+
 // ──────────────────────────────────────────
 // 4. 제품별 주제 분석 (구매동기 / 사용시점 / 같이언급제품)
 // ──────────────────────────────────────────
@@ -264,21 +303,21 @@ export async function generateProductTopicInsights(
   goodsName: string,
   reviews: string[]
 ): Promise<{ purchase_motivation: string[]; usage_timing: string[]; co_mentioned: string[] } | null> {
-  if (!process.env.ANTHROPIC_API_KEY || reviews.length === 0) return null
+  if (!process.env.OPENAI_API_KEY || reviews.length === 0) return null
 
   const sample = reviews.slice(0, 80).join('\n---\n')
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const res = await getClient().chat.completions.create({
+      model: MODEL,
       max_tokens: 400,
-      system: '당신은 리뷰 분석 AI입니다. JSON만 출력하고 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
-      messages: [{
-        role: 'user',
-        content: `다음은 "${goodsName}" 제품의 실구매 리뷰입니다.\n\n${sample}\n\n위 리뷰에서 다음 3가지를 각 최대 5개 한국어 키워드로 추출하세요:\n- purchase_motivation: 소비자가 이 제품을 구매한 이유/동기\n- usage_timing: 제품을 사용하는 시점/상황\n- co_mentioned: 함께 언급된 다른 제품명/브랜드명\n\n반드시 다음 JSON 형식으로만 출력:\n{"purchase_motivation":["..."],"usage_timing":["..."],"co_mentioned":["..."]}`,
-      }],
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: '당신은 리뷰 분석 AI입니다. JSON만 출력하세요.' },
+        { role: 'user', content: `다음은 "${goodsName}" 제품의 실구매 리뷰입니다.\n\n${sample}\n\n위 리뷰에서 다음 3가지를 각 최대 5개 한국어 키워드로 추출하세요:\n- purchase_motivation: 소비자가 이 제품을 구매한 이유/동기\n- usage_timing: 제품을 사용하는 시점/상황\n- co_mentioned: 함께 언급된 다른 제품명/브랜드명\n\n반드시 다음 JSON 형식으로만 출력:\n{"purchase_motivation":["..."],"usage_timing":["..."],"co_mentioned":["..."]}` },
+      ],
     })
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    const text = res.choices[0].message.content?.trim() ?? ''
     if (!text) return null
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return null
@@ -297,7 +336,7 @@ export async function generateOlivepickInsight(
   month: string,
   products: { name: string; category?: string | null }[]
 ): Promise<{ concept_tags: string[]; summary: string; action_points: string[] } | null> {
-  if (!process.env.ANTHROPIC_API_KEY || products.length === 0) return null
+  if (!process.env.OPENAI_API_KEY || products.length === 0) return null
 
   const nameList = products
     .slice(0, 100)
@@ -305,16 +344,16 @@ export async function generateOlivepickInsight(
     .join('\n')
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const res = await getClient().chat.completions.create({
+      model: MODEL,
       max_tokens: 1000,
-      system: '당신은 올리브영 입점 브랜드의 전략 담당자입니다. JSON만 출력하세요. 마크다운이나 설명 텍스트는 절대 포함하지 마세요.',
-      messages: [{
-        role: 'user',
-        content: `다음은 ${month} 올영픽 큐레이션 상품 목록입니다 (상품명 (카테고리) 형식):\n\n${nameList}\n\n위 상품 목록을 분석하여 다음 세 가지를 제공하세요:\n\n1. concept_tags: 이달 올영픽의 핵심 기획 컨셉 태그 최대 7개 (짧고 명확하게, 예: "포켓몬 콜라보", "1+1 기획", "선케어 강화", "굿즈 증정", "건강식품 확대")\n\n2. summary: 이달 올영픽의 기획 방향을 2~3문장으로 요약. 어떤 카테고리/테마가 중심이고, 어떤 프로모션 방식(1+1·콜라보·굿즈 등)이 사용됐는지 서술.\n\n3. action_points: 우리 브랜드(셀퓨전씨)가 이 기획에서 얻어야 할 대응 인사이트 3~5개. 각 항목은 "무엇을 해야 한다"는 실행 가능한 형태로 작성. 예시: "선케어 라인업 올영픽 입점 제안 적극 검토", "포켓몬 굿즈 기획 성공 사례 → 당사 IP 콜라보 기획 검토", "1+1 번들 구성 상품 기획팀 공유 필요"\n\n반드시 다음 JSON 형식으로만 출력:\n{"concept_tags":["..."],"summary":"...","action_points":["...","..."]}`,
-      }],
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: '당신은 올리브영 입점 브랜드의 전략 담당자입니다. JSON만 출력하세요.' },
+        { role: 'user', content: `다음은 ${month} 올영픽 큐레이션 상품 목록입니다 (상품명 (카테고리) 형식):\n\n${nameList}\n\n위 상품 목록을 분석하여 다음 세 가지를 제공하세요:\n\n1. concept_tags: 이달 올영픽의 핵심 기획 컨셉 태그 최대 7개 (짧고 명확하게, 예: "포켓몬 콜라보", "1+1 기획", "선케어 강화", "굿즈 증정", "건강식품 확대")\n\n2. summary: 이달 올영픽의 기획 방향을 2~3문장으로 요약. 어떤 카테고리/테마가 중심이고, 어떤 프로모션 방식(1+1·콜라보·굿즈 등)이 사용됐는지 서술.\n\n3. action_points: 우리 브랜드(셀퓨전씨)가 이 기획에서 얻어야 할 대응 인사이트 3~5개. 각 항목은 "무엇을 해야 한다"는 실행 가능한 형태로 작성.\n\n반드시 다음 JSON 형식으로만 출력:\n{"concept_tags":["..."],"summary":"...","action_points":["...","..."]}` },
+      ],
     })
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    const text = res.choices[0].message.content?.trim() ?? ''
     if (!text) return null
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return null
@@ -327,45 +366,5 @@ export async function generateOlivepickInsight(
   } catch (e) {
     console.error(`Olivepick insight failed for ${month}:`, e)
     return null
-  }
-}
-
-export async function generateReviewInsight(
-  insights: Insights,
-  negativeData: ProductNegativeData[]
-): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY || insights.total_reviews === 0) return ''
-
-  const todayStr = getKSTDateStr()
-
-  try {
-    const cached = await pool.query(
-      'SELECT insight_text FROM review_insights WHERE insight_date = $1',
-      [todayStr]
-    )
-    if (cached.rows[0]?.insight_text) return cached.rows[0].insight_text
-  } catch { /* 테이블 없으면 skip */ }
-
-  try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      system: NO_MARKDOWN_SYSTEM,
-      messages: [{ role: 'user', content: buildReviewPrompt(insights, negativeData) }],
-    })
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    if (!text) return ''
-
-    await pool.query(`
-      INSERT INTO review_insights (insight_date, insight_text)
-      VALUES ($1, $2)
-      ON CONFLICT (insight_date) DO UPDATE
-      SET insight_text = EXCLUDED.insight_text, generated_at = NOW()
-    `, [todayStr, text])
-
-    return text
-  } catch (e) {
-    console.error('Review insight generation failed:', e)
-    return ''
   }
 }
