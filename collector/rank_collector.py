@@ -24,9 +24,17 @@ from db.schema import get_conn, init_db
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     'Referer': 'https://www.oliveyoung.co.kr/store/main/getBestList.do',
-    'Accept-Language': 'ko-KR,ko;q=0.9',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
+    'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'same-origin',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
 }
 
 CATEGORIES = [
@@ -78,18 +86,97 @@ def _is_unchanged(cur, cat_name: str, ranking: list[dict]) -> bool:
     return prev == curr
 
 
+_session_cookies: dict = {}
+
+
+def _save_ranking(conn, cur, rank_date, rank_hour, cat_name: str, ranking: list[dict], our_goods: set) -> int:
+    """랭킹 저장 공통 로직. 저장한 항목 수 반환."""
+    with conn.cursor() as c:
+        if _is_unchanged(c, cat_name, ranking):
+            print(f"  변화 없음 — 저장 스킵")
+            return 0
+
+        for rank, item in enumerate(ranking, 1):
+            c.execute("""
+                INSERT INTO market_rankings (rank_date, rank_hour, category_name, rank_position, goods_no, goods_name)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (rank_date, rank_hour, category_name, rank_position)
+                DO UPDATE SET goods_no = EXCLUDED.goods_no, goods_name = EXCLUDED.goods_name
+            """, (rank_date, rank_hour, cat_name, rank, item['goods_no'], item['name']))
+
+        hits = [(i + 1, item) for i, item in enumerate(ranking) if item['goods_no'] in our_goods]
+        for rank, item in hits:
+            c.execute("""
+                INSERT INTO product_rankings (rank_date, goods_no, category_name, rank_position)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (rank_date, goods_no, category_name)
+                DO UPDATE SET rank_position = EXCLUDED.rank_position
+            """, (rank_date, item['goods_no'], cat_name, rank))
+
+    print(f"  전체 {len(ranking)}개 저장", end='')
+    if hits:
+        print(f"  |  자사: " + ", ".join(f"{r}위 {it['goods_no']}" for r, it in hits))
+    else:
+        print(f"  (자사 Top {ROWS_PER_PAGE} 없음)")
+    return len(ranking)
+
+
+def warm_session():
+    """올리브영 메인 → 베스트 페이지 순으로 방문해 세션 쿠키 확보"""
+    global _session_cookies
+    try:
+        main_headers = {**HEADERS, 'Referer': 'https://www.google.com/'}
+        kwargs = dict(headers=main_headers, timeout=15)
+        if _IMPERSONATE:
+            r = cf_requests.get('https://www.oliveyoung.co.kr/',
+                                impersonate=_IMPERSONATE, **kwargs)
+        else:
+            r = cf_requests.get('https://www.oliveyoung.co.kr/', **kwargs)
+        if hasattr(r, 'cookies'):
+            _session_cookies = dict(r.cookies)
+        time.sleep(random.uniform(4, 8))
+
+        # 베스트 목록 페이지도 한 번 방문
+        best_headers = {**HEADERS, 'Referer': 'https://www.oliveyoung.co.kr/'}
+        kwargs2 = dict(headers=best_headers, cookies=_session_cookies or None, timeout=15)
+        if _IMPERSONATE:
+            r2 = cf_requests.get('https://www.oliveyoung.co.kr/store/main/getBestList.do',
+                                 impersonate=_IMPERSONATE, **kwargs2)
+        else:
+            r2 = cf_requests.get('https://www.oliveyoung.co.kr/store/main/getBestList.do', **kwargs2)
+        if hasattr(r2, 'cookies'):
+            _session_cookies.update(dict(r2.cookies))
+
+        print(f"  세션 워밍업 완료 (쿠키 {len(_session_cookies)}개)")
+        time.sleep(random.uniform(5, 10))
+    except Exception as e:
+        print(f"  세션 워밍업 실패 (무시): {e}")
+
+
 def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
-    """카테고리 베스트 페이지에서 {goods_no, name} 순위 리스트 반환 (403 시 재시도 3회)"""
+    """카테고리 베스트 페이지에서 {goods_no, name} 순위 리스트 반환 (403 시 재시도 4회)"""
     params = {'dispCatNo': disp_cat, 'pageIdx': 1, 'rowsPerPage': ROWS_PER_PAGE}
     if flt_cat:
         params['fltDispCatNo'] = flt_cat
-    kwargs = dict(params=params, headers=HEADERS, timeout=20)
 
+    # 즉각 1회 재시도 (짧은 대기) — 긴 대기는 run()의 post-run 재시도에서 처리
+    retry_waits = [0, random.uniform(15, 25)]
     last_err = None
-    for attempt in range(3):
+
+    for attempt in range(2):
         if attempt > 0:
-            time.sleep(random.uniform(8, 15))
+            wait = retry_waits[attempt]
+            print(f"    → {wait:.0f}초 대기 후 즉각 재시도...")
+
+            time.sleep(wait)
+
         try:
+            kwargs = dict(
+                params=params,
+                headers=HEADERS,
+                cookies=_session_cookies if _session_cookies else None,
+                timeout=25,
+            )
             if _IMPERSONATE:
                 r = cf_requests.get('https://www.oliveyoung.co.kr/store/main/getBestList.do',
                                     impersonate=_IMPERSONATE, **kwargs)
@@ -97,7 +184,7 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
                 r = cf_requests.get('https://www.oliveyoung.co.kr/store/main/getBestList.do', **kwargs)
 
             if r.status_code == 403:
-                last_err = ValueError(f"HTTP 403 (시도 {attempt+1}/3)")
+                last_err = ValueError(f"HTTP 403 (시도 {attempt+1}/4)")
                 continue
             if r.status_code != 200:
                 raise ValueError(f"HTTP {r.status_code}")
@@ -126,7 +213,7 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
         except Exception as e:
             last_err = e
 
-    raise last_err or ValueError("3회 시도 실패")
+    raise last_err or ValueError("2회 시도 실패")
 
 
 def run():
@@ -149,48 +236,38 @@ def run():
         print(f"자사 상품 {len(our_goods)}개 기준으로 랭킹 탐색\n")
 
         total_saved = 0
+        failed_cats: list[tuple[str, str, str | None]] = []
+
+        warm_session()
 
         for cat_name, disp, flt in CATEGORIES:
             print(f"[{cat_name}] 수집 중...")
             try:
                 ranking = fetch_ranking(disp, flt)
-
-                with conn.cursor() as cur:
-                    if _is_unchanged(cur, cat_name, ranking):
-                        print(f"  변화 없음 — 저장 스킵")
-                        time.sleep(random.uniform(4, 8))
-                        continue
-
-                    # market_rankings: 전체 100개 저장
-                    for rank, item in enumerate(ranking, 1):
-                        cur.execute("""
-                            INSERT INTO market_rankings (rank_date, rank_hour, category_name, rank_position, goods_no, goods_name)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (rank_date, rank_hour, category_name, rank_position)
-                            DO UPDATE SET goods_no = EXCLUDED.goods_no, goods_name = EXCLUDED.goods_name
-                        """, (rank_date, rank_hour, cat_name, rank, item['goods_no'], item['name']))
-
-                    # product_rankings: 자사 상품만
-                    hits = [(i + 1, item) for i, item in enumerate(ranking) if item['goods_no'] in our_goods]
-                    for rank, item in hits:
-                        cur.execute("""
-                            INSERT INTO product_rankings (rank_date, goods_no, category_name, rank_position)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (rank_date, goods_no, category_name)
-                            DO UPDATE SET rank_position = EXCLUDED.rank_position
-                        """, (rank_date, item['goods_no'], cat_name, rank))
-
-                total_saved += len(ranking)
-                print(f"  전체 {len(ranking)}개 저장", end='')
-                if hits:
-                    print(f"  |  자사: " + ", ".join(f"{r}위 {it['goods_no']}" for r, it in hits))
-                else:
-                    print(f"  (자사 Top {ROWS_PER_PAGE} 없음)")
-
+                saved = _save_ranking(conn, cur=None, rank_date=rank_date, rank_hour=rank_hour,
+                                      cat_name=cat_name, ranking=ranking, our_goods=our_goods)
+                total_saved += saved
             except Exception as e:
                 print(f"  오류: {e}")
+                failed_cats.append((cat_name, disp, flt))
 
-            time.sleep(random.uniform(4, 8))
+            time.sleep(random.uniform(15, 25))
+
+        # 실패한 카테고리 한 번 더 시도
+        if failed_cats:
+            print(f"\n[재시도] 실패한 {len(failed_cats)}개 카테고리 재수집 시작...")
+            time.sleep(random.uniform(60, 90))
+            warm_session()
+            for cat_name, disp, flt in failed_cats:
+                print(f"[{cat_name}] 재시도 중...")
+                try:
+                    ranking = fetch_ranking(disp, flt)
+                    saved = _save_ranking(conn, cur=None, rank_date=rank_date, rank_hour=rank_hour,
+                                          cat_name=cat_name, ranking=ranking, our_goods=our_goods)
+                    total_saved += saved
+                except Exception as e:
+                    print(f"  재시도 실패: {e}")
+                time.sleep(random.uniform(20, 35))
 
         print(f"\n=== 완료 - {total_saved}개 시장 순위 저장 ===")
         revalidate_vercel()
