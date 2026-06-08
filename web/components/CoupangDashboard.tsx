@@ -475,6 +475,57 @@ function CoupangCategoryChart({ catName, entries }: { catName: string; entries: 
 
 // ─── InsightPanel ──────────────────────────────────────────────────────────────
 
+// ─── KeywordCloud ───────────────────────────────────────────────────────────────
+
+interface KwItem { word: string; count: number }
+
+function KeywordCloud({ label, keywords, color }: {
+  label: string
+  keywords: KwItem[]
+  color: 'emerald' | 'red'
+}) {
+  if (keywords.length === 0) return (
+    <div className={`bg-surface border border-border border-t-2 ${
+      color === 'emerald' ? 'border-t-emerald-200' : 'border-t-red-200'
+    } rounded-lg p-4 flex items-center justify-center min-h-[80px]`}>
+      <p className="text-xs text-text-tertiary">데이터 없음</p>
+    </div>
+  )
+  const max = keywords[0]?.count ?? 1
+  const min = keywords[keywords.length - 1]?.count ?? 0
+  const range = max - min || 1
+  return (
+    <div className={`bg-surface border border-border border-t-2 ${
+      color === 'emerald' ? 'border-t-emerald-200' : 'border-t-red-200'
+    } rounded-lg p-4`}>
+      <p className={`text-xs font-semibold mb-3 ${
+        color === 'emerald' ? 'text-emerald-700' : 'text-red-600'
+      }`}>{label}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {keywords.slice(0, 15).map(kw => {
+          const ratio = (kw.count - min) / range
+          const fontSize = Math.round(11 + ratio * 5)
+          const cls = color === 'emerald'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : 'bg-red-50 text-red-700 border-red-200'
+          return (
+            <span
+              key={kw.word}
+              className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full font-medium border ${cls}`}
+              style={{ fontSize: `${fontSize}px` }}
+            >
+              #{kw.word}
+              <span className="text-[9px] opacity-50">{kw.count}</span>
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── InsightSections ────────────────────────────────────────────────────────────
+
 const INSIGHT_SECTIONS: Record<string, { dot: string; header: string; topBorder: string }> = {
   '핵심 칭찬 포인트':       { dot: 'bg-emerald-500', header: 'text-emerald-700', topBorder: 'border-t-emerald-200' },
   '아쉬운 점 & 개선 기회': { dot: 'bg-orange-400',  header: 'text-orange-700',  topBorder: 'border-t-orange-200'  },
@@ -597,6 +648,9 @@ function CoupangInsightPanel({ productId }: { productId: string }) {
     )
   }
 
+  const latestSections = parseInsightSections(latest.content)
+  const actionSection = latestSections.find(s => s.name.includes('아쉬운') || s.name.includes('개선'))
+
   return (
     <div className="mb-6 space-y-3">
       <div className="flex items-center justify-between">
@@ -605,6 +659,13 @@ function CoupangInsightPanel({ productId }: { productId: string }) {
           {latest.created_at} · {latest.review_count}개 리뷰 기준
         </span>
       </div>
+
+      {actionSection?.items[0] && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-[10px] font-bold text-red-600 mb-1">🔴 이번 주 핵심 액션</p>
+          <p className="text-xs text-red-800 leading-relaxed">{actionSection.items[0]}</p>
+        </div>
+      )}
 
       <InsightSections text={latest.content} />
 
@@ -778,6 +839,8 @@ export default function CoupangDashboard() {
   const [rankHistory, setRankHistory]           = useState<Record<string, RankHistoryEntry[]> | null>(null)
   const [rankHistoryLoading, setRHLoading]      = useState(false)
   const [latestBriefing, setLatestBriefing]     = useState<InsightHistoryEntry | null>(null)
+  const [keywords, setKeywords]                 = useState<{ positive: KwItem[]; negative: KwItem[] } | null>(null)
+  const [kwLoading, setKwLoading]               = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -822,6 +885,18 @@ export default function CoupangDashboard() {
   }, [])
 
   useEffect(() => { fetchReviews('', 'all', 0) }, [fetchReviews])
+
+  useEffect(() => {
+    if (active !== 'reviews') return
+    setKwLoading(true)
+    setKeywords(null)
+    const qs = selectedProduct ? `?productId=${selectedProduct}` : ''
+    fetch(`/api/coupang/keywords${qs}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setKeywords(d) })
+      .catch(() => {})
+      .finally(() => setKwLoading(false))
+  }, [active, selectedProduct])
 
   useEffect(() => {
     if (active !== 'category' || rankHistory !== null) return
@@ -1042,6 +1117,17 @@ export default function CoupangDashboard() {
         {active === 'reviews' && (
           <section>
             <CoupangInsightPanel productId={selectedProduct} />
+            {kwLoading ? (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="animate-pulse bg-surface border border-border rounded-lg p-4 h-20" />
+                <div className="animate-pulse bg-surface border border-border rounded-lg p-4 h-20" />
+              </div>
+            ) : keywords && (keywords.positive.length > 0 || keywords.negative.length > 0) ? (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <KeywordCloud label="✅ 긍정 키워드" keywords={keywords.positive} color="emerald" />
+                <KeywordCloud label="⚠️ 부정 키워드" keywords={keywords.negative} color="red" />
+              </div>
+            ) : null}
             <div className="mb-4">
               <select
                 value={selectedProduct}

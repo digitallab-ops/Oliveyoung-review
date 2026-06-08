@@ -86,6 +86,7 @@ export default function InsightCards({ insights, onKeywordClick, activeKeywords 
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
             자주 언급되는 장점
           </p>
+          <p className="text-[10px] text-text-tertiary/60 mb-2">전체 상품 종합 기준</p>
           {insights.positive_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {insights.positive_keywords.map((kw) => (
@@ -112,6 +113,7 @@ export default function InsightCards({ insights, onKeywordClick, activeKeywords 
             <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
             아쉬운 점으로 언급
           </p>
+          <p className="text-[10px] text-text-tertiary/60 mb-2">전체 상품 종합 기준</p>
           {insights.negative_keywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {insights.negative_keywords.map((kw) => (
