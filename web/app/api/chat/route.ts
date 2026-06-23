@@ -5,6 +5,7 @@ import {
   getProductStats, getInsights, getNewProducts, getOurRankingTimeline,
   getCoupangStats, getCoupangProductStats, getCoupangRankings, getCoupangRecentReviews,
   getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
+  getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
 } from '@/lib/db'
 
 export const maxDuration = 60
@@ -45,6 +46,10 @@ const TOOL_TTL: Record<string, number> = {
   get_naver_search_ranks:    5 * 60_000,
   get_naver_market:          5 * 60_000,
   get_naver_insight:        10 * 60_000,
+  get_reviews_by_date:       2 * 60_000,
+  get_review_content:        2 * 60_000,
+  get_weekly_delta:          5 * 60_000,
+  get_product_summary:       5 * 60_000,
 }
 
 const SYSTEM_BASE = `당신은 셀퓨전씨 전속 멀티플랫폼 인사이트 파트너입니다. 올리브영·쿠팡·네이버 세 플랫폼의 실시간 데이터를 모두 활용해 브랜드 전략을 조언합니다.
@@ -58,7 +63,6 @@ const SYSTEM_BASE = `당신은 셀퓨전씨 전속 멀티플랫폼 인사이트 
 · 데이터를 단순히 읽지 않습니다. "이 숫자가 왜 나왔는지", "플랫폼 간 온도 차가 무엇인지", "셀퓨전씨가 뭘 해야 하는지"를 말합니다.
 · 크로스 플랫폼 질문(예: "쿠팡이랑 올리브영 비교해줘")엔 두 플랫폼 툴을 모두 호출해 비교 분석합니다.
 · 좋은 것만 말하지 않습니다. 위험 신호는 직접 경고합니다.
-· 마지막엔 항상 "그래서 셀퓨전씨는 이렇게 해야 합니다"로 끝냅니다.
 
 도구 사용 원칙:
 · "어떤 플랫폼이야?", "뭐 할 수 있어?", "연결된 거 알려줘" 같은 시스템 구조 질문은 도구를 호출하지 말고 이 프롬프트 정보만으로 답하세요.
@@ -72,9 +76,13 @@ const SYSTEM_BASE = `당신은 셀퓨전씨 전속 멀티플랫폼 인사이트 
 · "오늘 시간별 순위 변화 / 타임라인" → get_today_ranking
 · "프로모션 / 올영픽 / 오늘의 특가" → get_promo_status
 · "부정 리뷰 급증 / 컴플레인 / 문제 상품" → get_negative_alerts
-· "상품별 리뷰 수 / 평점 / 재구매율" → get_product_stats
+· "상품별 리뷰 수 / 평점 / 재구매율 / goods_no / 첫 수집일" → get_product_stats (goods_no·first_seen 포함)
 · "키워드 / 긍정·부정 반응 / 피부 타입" → get_insights
 · "신규 상품 / 최근 출시" → get_new_products
+· "특정 날짜 리뷰 / 날짜별 반응" → get_reviews_by_date
+· "리뷰 텍스트 읽기 / 실제 리뷰 내용 분석" → get_review_content
+· "이번 주 vs 지난 주 / 주간 변화" → get_weekly_delta
+· "상품 종합 분석 / 상품 전체 요약" → get_product_summary
 
 도구 선택 (쿠팡):
 · "쿠팡 전체 현황 / 평점" → get_coupang_stats
@@ -143,7 +151,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_product_stats',
-      description: '셀퓨전씨 전 상품의 리뷰 수, 평균 별점, 재구매율. 상품명으로 goods_no 찾을 때도 먼저 호출.',
+      description: '셀퓨전씨 전 상품의 goods_no·first_seen·리뷰 수·평균 별점·재구매율. 상품명으로 goods_no 또는 first_seen 찾을 때 먼저 호출.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -175,6 +183,61 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
       name: 'get_today_ranking',
       description: '오늘 시간대별 셀퓨전씨 자사 상품 순위 타임라인.',
       parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  // ── 고도화 툴 ──
+  {
+    type: 'function',
+    function: {
+      name: 'get_reviews_by_date',
+      description: '특정 날짜에 등록된 리뷰 목록. 날짜별 소비자 반응 확인.',
+      parameters: {
+        type: 'object',
+        properties: {
+          date:     { type: 'string', description: '날짜 (YYYY-MM-DD)' },
+          goods_no: { type: 'string', description: '특정 상품 번호. 생략 시 전체.' },
+        },
+        required: ['date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_review_content',
+      description: '실제 리뷰 텍스트 조회. 리뷰 내용을 직접 읽고 분석할 때 사용.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goods_no: { type: 'string', description: '상품 번호. 생략 시 전체.' },
+          date:     { type: 'string', description: '특정 날짜 필터 (YYYY-MM-DD).' },
+          filter:   { type: 'string', enum: ['all', 'positive', 'negative'], description: 'all/positive/negative' },
+          limit:    { type: 'number', description: '최대 건수 (기본 50)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_weekly_delta',
+      description: '이번 주 vs 지난 주 비교. 리뷰 수·평균 별점·긍부정 비율 변화량.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_product_summary',
+      description: '상품 하나의 종합 분석: 기본 통계 + 긍/부정 키워드 + 최근 리뷰 5건 + 순위 이력.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goods_no: { type: 'string', description: '상품 번호' },
+        },
+        required: ['goods_no'],
+      },
     },
   },
   // ── 쿠팡 ──
@@ -287,6 +350,19 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       return await getNaverMarket()
     case 'get_naver_insight':
       return await getNaverLatestInsight()
+    case 'get_reviews_by_date':
+      return await getReviewsByDate(input.date as string, (input.goods_no as string) || '')
+    case 'get_review_content':
+      return await getReviewContent({
+        goodsNo: (input.goods_no as string) || '',
+        date:    (input.date as string) || '',
+        filter:  (input.filter as 'all' | 'positive' | 'negative') || 'all',
+        limit:   Math.min((input.limit as number) || 50, 200),
+      })
+    case 'get_weekly_delta':
+      return await getWeeklyDelta()
+    case 'get_product_summary':
+      return await getProductSummaryFull(input.goods_no as string)
     default:
       return { error: `Unknown tool: ${name}` }
   }

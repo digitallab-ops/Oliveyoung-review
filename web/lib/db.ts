@@ -288,7 +288,9 @@ export async function getScoreDist(goodsNo?: string): Promise<ScoreDist[]> {
 
 export async function getProductStats(): Promise<ProductStats[]> {
   return query<ProductStats>(`
-    SELECT p.goods_name,
+    SELECT p.goods_no,
+           p.goods_name,
+           p.first_seen::text AS first_seen,
            COUNT(r.review_id) AS review_cnt,
            ROUND(AVG(r.score)::numeric, 2) AS avg_score,
            ROUND(
@@ -298,7 +300,7 @@ export async function getProductStats(): Promise<ProductStats[]> {
            SUM(CASE WHEN r.score = 5 THEN 1 ELSE 0 END) AS five_star_cnt
     FROM products p
     LEFT JOIN reviews r ON p.goods_no = r.goods_no
-    GROUP BY p.goods_name ORDER BY review_cnt DESC
+    GROUP BY p.goods_no, p.goods_name, p.first_seen ORDER BY review_cnt DESC
   `)
 }
 

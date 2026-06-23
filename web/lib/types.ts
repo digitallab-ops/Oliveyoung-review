@@ -32,7 +32,9 @@ export interface Stats {
 }
 
 export interface ProductStats {
+  goods_no: string
   goods_name: string
+  first_seen: string | null
   review_cnt: number
   avg_score: number
   repurchase_pct: number
