@@ -137,9 +137,6 @@ def init_db(conn=None):
                 ALTER TABLE market_rankings ADD COLUMN IF NOT EXISTS rank_hour SMALLINT NOT NULL DEFAULT 6
             """)
             cur.execute("""
-                DROP INDEX IF EXISTS idx_market_rankings_unique
-            """)
-            cur.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_market_rankings_unique
                     ON market_rankings(rank_date, rank_hour, category_name, rank_position)
             """)
@@ -305,7 +302,7 @@ def insert_review(review: dict, goods_no: str, conn=None):
         INSERT INTO reviews
             (review_id, goods_no, content, score, skin_type, skin_trouble, is_repurchase, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (review_id) DO NOTHING
+        ON CONFLICT DO NOTHING
     """
     if conn is not None:
         with conn.cursor() as cur:
