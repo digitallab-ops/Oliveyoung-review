@@ -27,7 +27,12 @@ const MODE_LABELS: { id: Mode; label: string }[] = [
   { id: 'weekly', label: '주간' },
 ]
 
-const COLORS = ['#2563EB', '#16A34A', '#DC2626', '#9333EA', '#EA580C', '#0891B2', '#CA8A04']
+const COLORS = [
+  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+  '#0891B2', '#EA580C', '#16A34A', '#9333EA', '#CA8A04',
+  '#DB2777', '#65A30D', '#0D9488', '#7C3AED', '#B45309', '#6366F1',
+]
 
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -123,8 +128,24 @@ function ProductCheckDropdown<T extends string>({
 }
 
 function CategoryChart({ items }: { items: ProductRankingData[] }) {
+  // 안정적 색상: 전체 items 배열 기준 인덱스로 고정 (선택/해제해도 색 안 밀림)
+  const colorOf = (goods_no: string) => {
+    const idx = items.findIndex(i => i.goods_no === goods_no)
+    return COLORS[idx % COLORS.length]
+  }
+
+  // 평균 순위 기준 정렬 (낮을수록 좋음) → 상단에 자주 있는 상품 기본 선택
+  const defaultSelected = [...items]
+    .filter(i => i.history.length > 0)
+    .sort((a, b) => {
+      const avg = (h: { rank: number }[]) => h.reduce((s, r) => s + r.rank, 0) / h.length
+      return avg(a.history) - avg(b.history)
+    })
+    .slice(0, 5)
+    .map(i => i.goods_no)
+
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(items.slice(0, 5).map(i => i.goods_no))
+    () => new Set(defaultSelected)
   )
 
   const filteredItems = items.filter(i => selected.has(i.goods_no))
@@ -151,8 +172,8 @@ function CategoryChart({ items }: { items: ProductRankingData[] }) {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-2 flex-1">
-          {currentRanks.map((item, i) => {
-            const color = COLORS[i % COLORS.length]
+          {currentRanks.map((item) => {
+            const color = colorOf(item.goods_no)
             const delta = item.prev != null && item.current != null ? item.prev - item.current : null
             return (
               <div key={item.goods_no}
@@ -176,6 +197,7 @@ function CategoryChart({ items }: { items: ProductRankingData[] }) {
           selected={selected}
           onChange={setSelected}
           labelFn={extractShortName}
+          colorFn={(i) => colorOf(dropItems[i].id)}
         />
       </div>
 
@@ -196,8 +218,8 @@ function CategoryChart({ items }: { items: ProductRankingData[] }) {
               tickFormatter={(v) => `${v}위`}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.06)', strokeWidth: 1 }} />
-            {filteredItems.map((item, i) => {
-              const color = COLORS[i % COLORS.length]
+            {filteredItems.map((item) => {
+              const color = colorOf(item.goods_no)
               return (
                 <Line
                   key={item.goods_no}
