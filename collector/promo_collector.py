@@ -304,6 +304,75 @@ def save_items(conn, ptype: str, items: list[dict], our_goods: set, today: date)
         print('  자사 미입점')
 
 
+def _check_olivepick_monthly_refresh(conn, today: date, our_goods: set):
+    """매월 1일: 이번달 올영픽 vs 지난달 올영픽 비교 후 Swit 알림"""
+    from datetime import timedelta
+
+    # 지난달 마지막 수집일 가져오기
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT collected_at, COUNT(*) as cnt
+            FROM promo_items
+            WHERE promo_type = 'olivepick'
+              AND collected_at < %s
+            GROUP BY collected_at
+            ORDER BY collected_at DESC
+            LIMIT 1
+        """, (today,))
+        prev_row = cur.fetchone()
+
+        cur.execute("""
+            SELECT goods_no, goods_name, is_ours
+            FROM promo_items
+            WHERE promo_type = 'olivepick' AND collected_at = %s
+        """, (today,))
+        this_month = {r['goods_no']: r for r in cur.fetchall()}
+
+    if not this_month:
+        send_alert(f'[올영픽 월 교체 확인 실패] {today} 수집 데이터 없음')
+        return
+
+    our_hits = [r for r in this_month.values() if r['is_ours']]
+
+    if not prev_row:
+        lines = [f'[올영픽 7월호 수집 완료] {today}',
+                 f'총 {len(this_month)}개 상품']
+        if our_hits:
+            lines.append('✅ 자사 입점: ' + ', '.join(r['goods_name'] for r in our_hits))
+        else:
+            lines.append('❌ 자사 미입점')
+        send_alert('\n'.join(lines))
+        return
+
+    prev_date = prev_row['collected_at']
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT goods_no, goods_name, is_ours
+            FROM promo_items
+            WHERE promo_type = 'olivepick' AND collected_at = %s
+        """, (prev_date,))
+        prev_month = {r['goods_no']: r for r in cur.fetchall()}
+
+    new_items  = [r for gn, r in this_month.items() if gn not in prev_month]
+    gone_items = [r for gn, r in prev_month.items() if gn not in this_month]
+    unchanged  = len(this_month) - len(new_items)
+
+    lines = [f'[올영픽 월 교체 감지] {prev_date} → {today}',
+             f'총 {len(this_month)}개 (신규 {len(new_items)}개 / 제외 {len(gone_items)}개 / 유지 {unchanged}개)']
+
+    if our_hits:
+        lines.append('✅ 자사 입점: ' + ', '.join(r['goods_name'] for r in our_hits))
+    else:
+        lines.append('❌ 자사 미입점')
+
+    if new_items:
+        lines.append('신규 입점: ' + ', '.join(r['goods_name'] for r in new_items[:5])
+                     + (f' 외 {len(new_items)-5}개' if len(new_items) > 5 else ''))
+
+    print('\n'.join(lines))
+    send_alert('\n'.join(lines))
+
+
 def run():
     today = date.today()
     today_str = today.strftime('%Y%m%d')
@@ -392,6 +461,10 @@ def run():
             print(f'  오류: {e}')
             send_alert(f'[올영픽 수집 오류] {today} 예외 발생\n{e}')
         time.sleep(2)
+
+        # ── 올영픽 월 교체 체크 (매월 1일) ──
+        if today.day == 1:
+            _check_olivepick_monthly_refresh(conn, today, our_goods)
 
         # ── 오늘의 특가 ──
         for ptype, label, flt_cond in HOTDEAL_CONDITIONS:
