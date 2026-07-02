@@ -608,9 +608,11 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
           WHEN '마스크팩'      THEN 3
           WHEN '클렌징'        THEN 4
           WHEN '선케어'        THEN 5
-          WHEN '더모 코스메틱' THEN 6
-          WHEN '바디케어'      THEN 7
-          WHEN '맨즈에딧'      THEN 8
+          WHEN '선스틱'        THEN 6
+          WHEN '선세럼·미스트' THEN 7
+          WHEN '더모 코스메틱' THEN 8
+          WHEN '바디케어'      THEN 9
+          WHEN '맨즈에딧'      THEN 10
           ELSE 99
         END,
         t.rank_position
