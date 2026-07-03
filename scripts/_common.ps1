@@ -34,10 +34,15 @@ function Send-Swit([string]$text) {
 
 function Get-Summary([string[]]$lines) {
     $result = $lines | Where-Object {
-        $_ -match '자사:|자사 상품|자사 미입점|자사 입점|총\s+\d+|신규\s*\d+|완료 -|스냅샷|기존\s+\d+'
+        $_ -match '자사 상품|자사 미입점|자사 입점|총\s+\d+|신규\s*\d+|완료 -|스냅샷|기존\s+\d+|경쟁사 시딩'
     } | Where-Object {
         $_ -notmatch '^\s+\(\d+/\d+\)' -and $_ -notmatch 'Top 100 없음'
-    } | ForEach-Object { "  " + $_.Trim() }
+    } | ForEach-Object {
+        $line = $_.Trim()
+        # 자사 순위 상세 줄은 앞부분만 (80자 초과 시 잘라냄)
+        if ($line.Length -gt 80) { $line = $line.Substring(0, 77) + "..." }
+        "  " + $line
+    } | Select-Object -First 6
     return ($result -join "`n")
 }
 
