@@ -507,6 +507,7 @@ export async function getProductRankingsByMode(): Promise<{
       JOIN products p ON mr.goods_no = p.goods_no
       WHERE mr.rank_date >= CURRENT_DATE - INTERVAL '30 days'
         AND p.is_competitor = false
+        AND mr.category_name NOT IN ('선스틱', '선세럼·미스트')
       GROUP BY mr.rank_date, mr.goods_no, p.goods_name, mr.category_name
       ORDER BY mr.category_name, mr.goods_no, mr.rank_date
     `)
@@ -522,6 +523,7 @@ export async function getProductRankingsByMode(): Promise<{
       JOIN products p ON mr.goods_no = p.goods_no
       WHERE mr.rank_date >= CURRENT_DATE - INTERVAL '30 days'
         AND p.is_competitor = false
+        AND mr.category_name NOT IN ('선스틱', '선세럼·미스트')
       GROUP BY DATE_TRUNC('week', mr.rank_date), mr.goods_no, p.goods_name, mr.category_name
       ORDER BY mr.category_name, mr.goods_no, date
     `)
@@ -805,6 +807,7 @@ export async function getOurRankingTimeline(): Promise<OurRankingTimelineEntry[]
       JOIN products p ON mr.goods_no = p.goods_no
       WHERE mr.rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
         AND p.is_competitor = false
+        AND mr.category_name NOT IN ('선스틱', '선세럼·미스트')
       ORDER BY mr.goods_no, mr.category_name, mr.rank_hour
     `)
   } catch {
