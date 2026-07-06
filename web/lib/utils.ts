@@ -44,6 +44,5 @@ export function extractShortName(goods_name: string): string {
   return goods_name
     .replace(/\[.*?\]\s*/g, '')
     .replace(/^셀퓨전씨\s*/, '')
-    .slice(0, 16)
     .trim()
 }
