@@ -247,18 +247,7 @@ function buildMcpServer(): McpServer {
   return server
 }
 
-function checkAuth(req: NextRequest): boolean {
-  const apiKey = process.env.MCP_API_KEY || ''
-  if (!apiKey) return true
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${apiKey}`
-}
-
 async function handle(req: NextRequest): Promise<Response> {
-  if (!checkAuth(req)) {
-    return new Response('Unauthorized', { status: 401 })
-  }
-
   const server = buildMcpServer()
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
