@@ -17,6 +17,7 @@ import {
   getCoupangStats, getCoupangProductStats, getCoupangRankings, getCoupangRecentReviews,
   getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
   getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
+  getRankingChanges, getTopMovers, getCompetitiveSummary, getDailyBrief,
 } from '@/lib/db'
 
 export const maxDuration = 60
@@ -240,6 +241,49 @@ function buildMcpServer(): McpServer {
     },
     async ({ goods_no }) => {
       const data = await getProductSummaryFull(goods_no)
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  // ── 분석 툴 ────────────────────────────────────────────────────────────────
+
+  server.tool(
+    'get_ranking_changes',
+    '전일 대비 순위 변화 분석. 어제 대비 순위가 오른 상품(improved), 내린 상품(dropped), 신규 진입(new_entry)으로 구분. 셀퓨전씨 상품은 is_ours=true.',
+    {},
+    async () => {
+      const data = await getRankingChanges()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_top_movers',
+    '최근 7일간 순위 변동이 가장 큰 상품 Top 20. total_change 양수=상승, 음수=하락. 시장 흐름 파악에 사용.',
+    {},
+    async () => {
+      const data = await getTopMovers()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_competitive_summary',
+    '카테고리별 Top 5 경쟁 현황 종합. 각 카테고리에서 셀퓨전씨 최고 순위(our_best_rank)와 경쟁사 수 포함. 시장 내 포지션 파악에 사용.',
+    {},
+    async () => {
+      const data = await getCompetitiveSummary()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_daily_brief',
+    '오늘 아침 자동 생성된 종합 인사이트 브리핑. 순위·리뷰·시장 동향을 하나로 요약. "오늘 어때?", "인사이트 줘", "현황 알려줘" 같은 포괄적 질문에 사용.',
+    {},
+    async () => {
+      const data = await getDailyBrief()
+      if (!data) return { content: [{ type: 'text' as const, text: '오늘 브리핑이 아직 생성되지 않았습니다. get_ranking_changes, get_competitive_summary를 대신 사용하세요.' }] }
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
     }
   )

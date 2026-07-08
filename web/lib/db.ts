@@ -1652,3 +1652,162 @@ export async function getNaverLatestInsight() {
   `)
   return rows[0] ?? null
 }
+
+// ── 분석 툴 ───────────────────────────────────────────────────────────────────
+
+/** 전일 대비 순위 변화: 오른 상품 / 내린 상품 / 신규 진입 */
+export async function getRankingChanges() {
+  const rows = await query<{
+    category_name: string
+    goods_name:    string
+    goods_no:      string
+    rank_today:    number
+    rank_yesterday: number | null
+    rank_change:   number | null
+    is_ours:       boolean
+  }>(`
+    WITH today AS (
+      SELECT DISTINCT ON (category_name, goods_no)
+        category_name, goods_no, goods_name, rank_position
+      FROM market_rankings
+      WHERE rank_date = CURRENT_DATE
+      ORDER BY category_name, goods_no, rank_hour DESC
+    ),
+    yesterday AS (
+      SELECT DISTINCT ON (category_name, goods_no)
+        category_name, goods_no, rank_position
+      FROM market_rankings
+      WHERE rank_date = CURRENT_DATE - INTERVAL '1 day'
+      ORDER BY category_name, goods_no, rank_hour DESC
+    )
+    SELECT
+      t.category_name,
+      t.goods_name,
+      t.goods_no,
+      t.rank_position                            AS rank_today,
+      y.rank_position                            AS rank_yesterday,
+      y.rank_position - t.rank_position          AS rank_change,
+      (p.is_competitor IS FALSE OR p.goods_no IS NOT NULL AND p.is_competitor = FALSE) AS is_ours
+    FROM today t
+    LEFT JOIN yesterday y
+      ON t.category_name = y.category_name AND t.goods_no = y.goods_no
+    LEFT JOIN products p ON t.goods_no = p.goods_no
+    ORDER BY ABS(COALESCE(y.rank_position - t.rank_position, 0)) DESC NULLS LAST,
+             t.category_name, t.rank_position
+  `)
+
+  const improved = rows.filter(r => r.rank_change != null && r.rank_change > 0)
+    .sort((a, b) => (b.rank_change ?? 0) - (a.rank_change ?? 0)).slice(0, 10)
+  const dropped = rows.filter(r => r.rank_change != null && r.rank_change < 0)
+    .sort((a, b) => (a.rank_change ?? 0) - (b.rank_change ?? 0)).slice(0, 10)
+  const new_entry = rows.filter(r => r.rank_yesterday == null).slice(0, 10)
+
+  return { improved, dropped, new_entry, total_tracked: rows.length }
+}
+
+/** 최근 7일 가장 많이 오르내린 상품 */
+export async function getTopMovers() {
+  return query<{
+    category_name: string
+    goods_name:    string
+    goods_no:      string
+    rank_7d_ago:   number | null
+    rank_today:    number
+    total_change:  number | null
+    is_ours:       boolean
+  }>(`
+    WITH latest AS (
+      SELECT DISTINCT ON (category_name, goods_no)
+        category_name, goods_no, goods_name, rank_position AS rank_today
+      FROM market_rankings
+      WHERE rank_date = CURRENT_DATE
+      ORDER BY category_name, goods_no, rank_hour DESC
+    ),
+    week_ago AS (
+      SELECT DISTINCT ON (category_name, goods_no)
+        category_name, goods_no, rank_position AS rank_7d_ago
+      FROM market_rankings
+      WHERE rank_date = CURRENT_DATE - INTERVAL '7 days'
+      ORDER BY category_name, goods_no, rank_hour DESC
+    )
+    SELECT
+      l.category_name,
+      l.goods_name,
+      l.goods_no,
+      w.rank_7d_ago,
+      l.rank_today,
+      w.rank_7d_ago - l.rank_today        AS total_change,
+      (p.is_competitor = FALSE)            AS is_ours
+    FROM latest l
+    LEFT JOIN week_ago w
+      ON l.category_name = w.category_name AND l.goods_no = w.goods_no
+    LEFT JOIN products p ON l.goods_no = p.goods_no
+    WHERE w.rank_7d_ago IS NOT NULL
+    ORDER BY ABS(w.rank_7d_ago - l.rank_today) DESC
+    LIMIT 20
+  `)
+}
+
+/** 카테고리별 경쟁사 상위 상품 + 우리 상품 현황 종합 */
+export async function getCompetitiveSummary() {
+  return query<{
+    category_name:    string
+    rank_position:    number
+    goods_name:       string
+    goods_no:         string
+    is_ours:          boolean
+    our_best_rank:    number | null
+    competitor_count: number
+  }>(`
+    WITH latest AS (
+      SELECT DISTINCT ON (category_name, goods_no)
+        category_name, goods_no, goods_name, rank_position
+      FROM market_rankings
+      WHERE rank_date = CURRENT_DATE
+      ORDER BY category_name, goods_no, rank_hour DESC
+    ),
+    our_best AS (
+      SELECT l.category_name, MIN(l.rank_position) AS our_best_rank
+      FROM latest l
+      JOIN products p ON l.goods_no = p.goods_no
+      WHERE p.is_competitor = FALSE
+      GROUP BY l.category_name
+    ),
+    cat_counts AS (
+      SELECT category_name, COUNT(*) AS competitor_count
+      FROM latest l
+      JOIN products p ON l.goods_no = p.goods_no
+      WHERE p.is_competitor = TRUE
+      GROUP BY category_name
+    )
+    SELECT
+      l.category_name,
+      l.rank_position,
+      l.goods_name,
+      l.goods_no,
+      (p.is_competitor = FALSE) AS is_ours,
+      ob.our_best_rank,
+      COALESCE(cc.competitor_count, 0)::int AS competitor_count
+    FROM latest l
+    LEFT JOIN products p ON l.goods_no = p.goods_no
+    LEFT JOIN our_best ob ON l.category_name = ob.category_name
+    LEFT JOIN cat_counts cc ON l.category_name = cc.category_name
+    WHERE l.rank_position <= 5
+    ORDER BY l.category_name, l.rank_position
+  `)
+}
+
+/** 오늘의 데일리 브리핑 조회 (없으면 null) */
+export async function getDailyBrief(): Promise<{ brief_date: string; brief_text: string; generated_at: string } | null> {
+  const rows = await query<{ brief_date: string; brief_text: string; generated_at: string }>(`
+    SELECT
+      to_char(brief_date, 'YYYY-MM-DD')                            AS brief_date,
+      brief_text,
+      to_char(generated_at AT TIME ZONE 'Asia/Seoul', 'HH24:MI')  AS generated_at
+    FROM daily_briefs
+    WHERE brief_date = CURRENT_DATE
+    ORDER BY generated_at DESC
+    LIMIT 1
+  `)
+  return rows[0] ?? null
+}
