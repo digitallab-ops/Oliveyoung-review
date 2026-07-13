@@ -10,7 +10,8 @@ import type {
   Stats, Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
-  OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData
+  OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
+  CompetitorInsight,
 } from '@/lib/types'
 
 interface Props {
@@ -35,6 +36,7 @@ interface Props {
   promoStatus: PromoStatusData[]
   productKeywords: ProductKeywordData[]
   productTopics: ProductTopicData[]
+  competitorInsights: CompetitorInsight[]
 }
 
 export default function PlatformShell({
@@ -42,7 +44,7 @@ export default function PlatformShell({
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus,
-  productKeywords, productTopics,
+  productKeywords, productTopics, competitorInsights,
 }: Props) {
   const [platform, setPlatform] = useState<Platform>('oliveyoung')
 
@@ -121,6 +123,7 @@ export default function PlatformShell({
             promoStatus={promoStatus}
             productKeywords={productKeywords}
             productTopics={productTopics}
+            competitorInsights={competitorInsights}
           />
         </>
       )}

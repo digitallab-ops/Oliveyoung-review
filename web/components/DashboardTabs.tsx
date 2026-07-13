@@ -5,7 +5,8 @@ import type {
   Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
-  OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData
+  OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
+  CompetitorInsight,
 } from '@/lib/types'
 
 import InsightCards from '@/components/InsightCards'
@@ -48,6 +49,7 @@ interface Props {
   promoStatus: PromoStatusData[]
   productKeywords: ProductKeywordData[]
   productTopics: ProductTopicData[]
+  competitorInsights: CompetitorInsight[]
 }
 
 function renderBold(text: string): React.ReactNode {
@@ -76,7 +78,8 @@ export default function DashboardTabs({
   insights, timeSeries, negativeData, scoreDist, productStats,
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
-  newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics
+  newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics,
+  competitorInsights,
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
   const [refreshing, setRefreshing] = useState(false)
@@ -289,7 +292,7 @@ export default function DashboardTabs({
         {/* 경쟁사 분석 */}
         {active === 'competitor' && (
           <div className="space-y-10">
-            <CompetitorSection summaries={competitorSummaries} />
+            <CompetitorSection summaries={competitorSummaries} insights={competitorInsights} />
             <div>
               <SectionDivider tag="브랜드 타임라인" />
               <div className="mb-3">

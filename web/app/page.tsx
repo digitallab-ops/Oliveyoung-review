@@ -1,4 +1,4 @@
-import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getCompetitorSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights } from '@/lib/db'
+import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getCompetitorSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights, getCompetitorInsights } from '@/lib/db'
 import { generateMarketInsight, generateReviewInsight, generateDailyBrief } from '@/lib/ai'
 import PlatformShell from '@/components/PlatformShell'
 import FeatureGuide from '@/components/FeatureGuide'
@@ -40,7 +40,7 @@ export default async function Page() {
   const insightsDefault = { positive_keywords: [], negative_keywords: [], total_reviews: 0, skin_dist: [], top_product: null }
   const rankingsDefault = { best: [], avg: [], weekly: [], lastCollected: {} }
 
-  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords] = await Promise.all([
+  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, competitorInsights] = await Promise.all([
     safe(getStats, statsDefault),
     safe(getInsights, insightsDefault),
     safe(getScoreDist, []),
@@ -57,6 +57,7 @@ export default async function Page() {
     safe(getOurRankingTimeline, []),
     safe(getPromoStatus, []),
     safe(getProductKeywords, []),
+    safe(getCompetitorInsights, []),
   ])
 
   const productTopics = await safe(getProductTopicInsights, [])
@@ -137,6 +138,7 @@ export default async function Page() {
           promoStatus={promoStatus}
           productKeywords={productKeywords}
           productTopics={productTopics}
+          competitorInsights={competitorInsights}
         />
 
           {/* 푸터 */}

@@ -297,3 +297,17 @@ export interface OlivepickRankTrendPoint {
   rank_position: number
   category_name: string | null
 }
+
+export interface CompetitorInsight {
+  week_start: string
+  category_name: string
+  goods_no: string
+  goods_name: string
+  brand_name: string | null
+  rank_position: number | null
+  review_count: number
+  avg_score: number | null
+  positive_keywords: { word: string; cnt: number }[]
+  negative_keywords: { word: string; cnt: number }[]
+  is_ours: boolean
+}

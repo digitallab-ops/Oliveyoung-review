@@ -18,6 +18,7 @@ import {
   getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
   getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
   getRankingChanges, getTopMovers, getCompetitiveSummary, getDailyBrief,
+  getCompetitorInsights,
 } from '@/lib/db'
 
 export const maxDuration = 60
@@ -273,6 +274,19 @@ function buildMcpServer(): McpServer {
     {},
     async () => {
       const data = await getCompetitiveSummary()
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_competitor_analysis',
+    '카테고리별 경쟁사 vs 셀퓨전씨 리뷰 키워드 비교 분석. 긍정/부정 키워드를 나란히 보여줌. "경쟁사 대비 강점/약점", "경쟁력", "키워드 비교" 질문에 사용.',
+    { category: z.string().optional().describe('카테고리명 (예: 선케어, 스킨케어). 생략 시 전체 카테고리.') },
+    async ({ category }) => {
+      const data = await getCompetitorInsights(category)
+      if (data.length === 0) {
+        return { content: [{ type: 'text' as const, text: '경쟁사 키워드 분석 데이터가 없습니다. 매주 월요일 자동 생성됩니다.' }] }
+      }
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
     }
   )

@@ -3,11 +3,13 @@
 import { useState, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { CompetitorSummary } from '@/lib/types'
+import type { CompetitorSummary, CompetitorInsight } from '@/lib/types'
 import SectionDivider from '@/components/SectionDivider'
+import CompetitorKeywords from '@/components/CompetitorKeywords'
 
 interface Props {
   summaries: CompetitorSummary[]
+  insights?: CompetitorInsight[]
 }
 
 function extractBrand(goods_name: string): string {
@@ -173,7 +175,7 @@ function BrandGroup({ brand, products }: { brand: string; products: CompetitorSu
   )
 }
 
-export default function CompetitorSection({ summaries }: Props) {
+export default function CompetitorSection({ summaries, insights = [] }: Props) {
   const categories = useMemo(() => {
     const set = new Set<string>()
     for (const s of summaries) {
@@ -258,6 +260,11 @@ export default function CompetitorSection({ summaries }: Props) {
           )}
         </>
       )}
+
+      {/* 키워드 비교 분석 */}
+      <div className="mt-8">
+        <CompetitorKeywords insights={insights} />
+      </div>
     </div>
   )
 }

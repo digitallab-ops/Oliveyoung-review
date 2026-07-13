@@ -1797,6 +1797,60 @@ export async function getCompetitiveSummary() {
   `)
 }
 
+// ─────────────────────────────────────────
+// 경쟁사 키워드 분석
+// ─────────────────────────────────────────
+
+export async function getCompetitorInsights(category?: string): Promise<import('./types').CompetitorInsight[]> {
+  try {
+    const rows = await query<{
+      week_start: string
+      category_name: string
+      goods_no: string
+      goods_name: string
+      brand_name: string | null
+      rank_position: number | null
+      review_count: number
+      avg_score: string | null
+      positive_keywords: unknown
+      negative_keywords: unknown
+      is_ours: boolean
+    }>(`
+      SELECT
+        week_start::text,
+        category_name,
+        goods_no,
+        goods_name,
+        brand_name,
+        rank_position,
+        review_count,
+        avg_score::text,
+        positive_keywords,
+        negative_keywords,
+        is_ours
+      FROM competitor_insights
+      WHERE week_start = (SELECT MAX(week_start) FROM competitor_insights)
+        ${category ? 'AND category_name = $1' : ''}
+      ORDER BY category_name, is_ours DESC, rank_position NULLS LAST
+    `, category ? [category] : [])
+
+    return rows.map(r => ({
+      ...r,
+      review_count: Number(r.review_count),
+      rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+      avg_score: r.avg_score != null ? Number(r.avg_score) : null,
+      positive_keywords: typeof r.positive_keywords === 'string'
+        ? JSON.parse(r.positive_keywords)
+        : (r.positive_keywords as { word: string; cnt: number }[] ?? []),
+      negative_keywords: typeof r.negative_keywords === 'string'
+        ? JSON.parse(r.negative_keywords)
+        : (r.negative_keywords as { word: string; cnt: number }[] ?? []),
+    }))
+  } catch {
+    return []
+  }
+}
+
 /** 오늘의 데일리 브리핑 조회 (없으면 null) */
 export async function getDailyBrief(): Promise<{ brief_date: string; brief_text: string; generated_at: string } | null> {
   const rows = await query<{ brief_date: string; brief_text: string; generated_at: string }>(`

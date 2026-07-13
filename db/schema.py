@@ -300,6 +300,32 @@ def init_db(conn=None):
                 ALTER TABLE reviews
                     ADD COLUMN IF NOT EXISTS has_photo BOOLEAN NOT NULL DEFAULT false
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competitor_insights (
+                    id               SERIAL PRIMARY KEY,
+                    week_start       DATE NOT NULL,
+                    category_name    TEXT NOT NULL,
+                    goods_no         TEXT NOT NULL,
+                    goods_name       TEXT NOT NULL,
+                    brand_name       TEXT,
+                    rank_position    INT,
+                    review_count     INT NOT NULL DEFAULT 0,
+                    avg_score        NUMERIC(3,2),
+                    positive_keywords JSONB NOT NULL DEFAULT '[]',
+                    negative_keywords JSONB NOT NULL DEFAULT '[]',
+                    is_ours          BOOLEAN NOT NULL DEFAULT FALSE,
+                    generated_at     TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(week_start, category_name, goods_no)
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competitor_insights_week
+                    ON competitor_insights(week_start DESC)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competitor_insights_cat
+                    ON competitor_insights(category_name, week_start DESC)
+            """)
 
     if conn is not None:
         _run(conn)
