@@ -655,7 +655,7 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
         t.goods_name,
         y.rank_position                           AS prev_rank,
         y.rank_position - t.rank_position         AS delta,
-        EXISTS(SELECT 1 FROM products p WHERE p.goods_no = t.goods_no) AS is_ours
+        EXISTS(SELECT 1 FROM products p WHERE p.goods_no = t.goods_no AND p.is_competitor = FALSE) AS is_ours
       FROM today_snap t
       LEFT JOIN yesterday_snap y
         ON t.goods_no = y.goods_no AND t.category_name = y.category_name
