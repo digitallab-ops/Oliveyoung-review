@@ -166,19 +166,16 @@ export default function CompetitorKeywords({ insights }: Props) {
         </p>
       ) : (
         <div>
+          {ourProducts.length === 0 && (
+            <p className="text-xs text-text-tertiary/70 mb-2">
+              해당 카테고리에 셀퓨전씨 순위권 상품 없음 — 경쟁사 상위 상품만 표시
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* 자사 상품 */}
-            {ourProducts.length > 0 ? (
-              ourProducts.map(ins => (
-                <InsightCard key={ins.goods_no} insight={ins} isOurs />
-              ))
-            ) : (
-              <div className="rounded-lg border border-dashed border-accent/30 bg-accent-bg/30 p-3 flex items-center justify-center">
-                <p className="text-xs text-text-tertiary text-center">
-                  자사 상품 순위권 없음
-                </p>
-              </div>
-            )}
+            {ourProducts.map(ins => (
+              <InsightCard key={ins.goods_no} insight={ins} isOurs />
+            ))}
 
             {/* 경쟁사 상품 */}
             {competitors.map(ins => (
