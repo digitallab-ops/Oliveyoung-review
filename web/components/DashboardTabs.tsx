@@ -147,7 +147,7 @@ export default function DashboardTabs({
                   <ul className="space-y-2">
                     {dailyBrief
                       .split('\n')
-                      .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/^[\s\-·•*\d.]+/, '').trim())
+                      .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/^[\s\-·•\d.]+/, '').trim())
                       .filter(l => l.length > 10)
                       .map((msg, i) => (
                         <li key={i} className="text-sm text-accent-fg flex items-start gap-2">
@@ -238,7 +238,7 @@ export default function DashboardTabs({
                 <ul className="space-y-1.5">
                   {reviewInsight
                     .split('\n')
-                    .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/^[\s\-·•*\d.]+/, '').trim())
+                    .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/^[\s\-·•\d.]+/, '').trim())
                     .filter(l => l.length > 10)
                     .map((msg, i) => (
                       <li key={i} className="text-sm text-accent-fg flex items-start gap-1.5">

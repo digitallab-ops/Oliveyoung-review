@@ -218,10 +218,21 @@ export default function CompetitorSection({ summaries, insights = [] }: Props) {
         </p>
       </div>
 
-      {/* 키워드 비교 분석 — 브랜드 목록보다 먼저 표시 */}
+      {/* 키워드 비교 분석 */}
       {insights.length > 0 && (
-        <div className="mb-8">
+        <div className="mb-4">
           <CompetitorKeywords insights={insights} />
+          {summaries.length > 0 && (
+            <a
+              href="#competitor-brand-list"
+              className="mt-3 flex items-center gap-1 text-xs text-accent hover:underline w-fit"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 2v8M2 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              브랜드별 AI 분석 {brandGroups.length}개 보기
+            </a>
+          )}
         </div>
       )}
 
@@ -256,7 +267,7 @@ export default function CompetitorSection({ summaries, insights = [] }: Props) {
             </div>
           )}
 
-          <div className="space-y-3">
+          <div id="competitor-brand-list" className="space-y-3">
             {brandGroups.map(([brand, products]) => (
               <BrandGroup key={brand} brand={brand} products={products} />
             ))}
