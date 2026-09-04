@@ -23,6 +23,76 @@ import {
 
 export const maxDuration = 60
 
+const _OY_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept-Language': 'ko-KR,ko;q=0.9',
+  'Referer': 'https://www.oliveyoung.co.kr/store/main/getBestList.do',
+}
+
+async function scrapeIngredients(goodsNo: string): Promise<{
+  goods_no: string
+  goods_name: string
+  brand: string
+  ingredients_raw: string
+  ingredients: string[]
+  available: boolean
+  source: string
+}> {
+  const base = { goods_no: goodsNo, goods_name: '', brand: '', ingredients_raw: '', ingredients: [] as string[], available: false, source: 'oliveyoung' }
+  try {
+    const url = `https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=${encodeURIComponent(goodsNo)}`
+    const res = await fetch(url, { headers: _OY_HEADERS, signal: AbortSignal.timeout(15000) })
+    if (!res.ok) return base
+    const html = await res.text()
+
+    // 상품명
+    const titleM = html.match(/<meta property="og:title" content="([^"]+)"/)
+    if (titleM) base.goods_name = titleM[1].trim()
+
+    // 브랜드 (og:description 또는 브랜드 태그)
+    const brandM = html.match(/class="[^"]*brand[^"]*"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/)
+                ?? html.match(/<span[^>]*itemprop="brand"[^>]*>([^<]+)<\/span>/)
+    if (brandM) base.brand = brandM[1].trim()
+
+    // 전성분 파싱 — 여러 패턴 순서대로 시도
+    let raw = ''
+
+    // 패턴 1: <dt>전성분</dt><dd>...</dd>
+    const dtM = html.match(/<dt[^>]*>[^<]*전성분[^<]*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/i)
+    if (dtM) raw = dtM[1]
+
+    // 패턴 2: class에 ingredient/material 포함된 div/p
+    if (!raw) {
+      const clsM = html.match(/<(?:div|p)[^>]*class="[^"]*(?:ingredient|material|allergy)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|p)>/i)
+      if (clsM) raw = clsM[1]
+    }
+
+    // 패턴 3: "전성분" 텍스트 근처 200~2000자 텍스트 블록
+    if (!raw) {
+      const idx = html.search(/전\s*성\s*분/)
+      if (idx !== -1) {
+        const chunk = html.slice(idx, idx + 3000)
+        // 다음 태그 내용 추출 (태그 제거 후)
+        const afterM = chunk.match(/전\s*성\s*분[^<>]*(?:<[^>]+>)*([가-힣a-zA-Z0-9,\s\(\)\[\]\-\/\.%&*+]+)/)
+        if (afterM && afterM[1].length > 20) raw = afterM[1]
+      }
+    }
+
+    if (!raw) return base
+
+    // HTML 태그 제거, 공백 정리
+    const cleaned = raw.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (cleaned.length < 5) return base
+
+    base.ingredients_raw = cleaned
+    base.ingredients = cleaned.split(',').map(s => s.trim()).filter(Boolean)
+    base.available = true
+    return base
+  } catch {
+    return base
+  }
+}
+
 function buildMcpServer(): McpServer {
   const server = new McpServer({
     name: 'CellFusionC Insight — 올리브영·쿠팡·네이버',
@@ -287,6 +357,16 @@ function buildMcpServer(): McpServer {
       if (data.length === 0) {
         return { content: [{ type: 'text' as const, text: '경쟁사 키워드 분석 데이터가 없습니다. 매주 월요일 자동 생성됩니다.' }] }
       }
+      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_ingredients',
+    '올리브영 상품 전성분 조회. goods_no를 입력하면 해당 상품의 화장품 전성분 원문을 반환. available=false면 전성분 정보 없음.',
+    { goods_no: z.string().describe('올리브영 상품 번호 (예: A000000257580). get_market_rankings 결과에서 확인 가능.') },
+    async ({ goods_no }) => {
+      const data = await scrapeIngredients(goods_no)
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
     }
   )
