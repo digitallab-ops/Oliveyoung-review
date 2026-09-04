@@ -18,64 +18,11 @@ import {
   getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
   getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
   getRankingChanges, getTopMovers, getCompetitiveSummary, getDailyBrief,
-  getCompetitorInsights,
+  getCompetitorInsights, getIngredients,
 } from '@/lib/db'
 
 export const maxDuration = 60
 
-const _OY_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Accept-Language': 'ko-KR,ko;q=0.9',
-  'Referer': 'https://www.oliveyoung.co.kr/store/main/getBestList.do',
-}
-
-async function scrapeIngredients(goodsNo: string): Promise<{
-  goods_no: string
-  goods_name: string
-  brand: string
-  ingredients_raw: string
-  ingredients: string[]
-  available: boolean
-  source: string
-}> {
-  const base = { goods_no: goodsNo, goods_name: '', brand: '', ingredients_raw: '', ingredients: [] as string[], available: false, source: 'oliveyoung' }
-  try {
-    // 상품 법정 정보 AJAX 엔드포인트 (전성분 포함)
-    const artcUrl = `https://www.oliveyoung.co.kr/store/goods/getGoodsArtcAjax.do?goodsNo=${encodeURIComponent(goodsNo)}`
-    const artcRes = await fetch(artcUrl, { headers: _OY_HEADERS, signal: AbortSignal.timeout(15000) })
-    if (!artcRes.ok) return base
-    const artcHtml = await artcRes.text()
-
-    // "화장품법에 따라 기재해야 하는 모든 성분" dt → dd 추출
-    const ingM = artcHtml.match(/<dt[^>]*>화장품법에 따라 기재해야 하는 모든 성분<\/dt>\s*(?:<[^>]+>\s*)*<dd[^>]*>([\s\S]*?)<\/dd>/i)
-    if (!ingM) return base
-
-    const raw = ingM[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-    if (raw.length < 5) return base
-
-    // 상품명 + 브랜드는 메인 페이지에서 (가볍게 시도, 실패해도 무관)
-    try {
-      const detailRes = await fetch(
-        `https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=${encodeURIComponent(goodsNo)}`,
-        { headers: _OY_HEADERS, signal: AbortSignal.timeout(10000) }
-      )
-      if (detailRes.ok) {
-        const detailHtml = await detailRes.text()
-        const titleM = detailHtml.match(/<meta property="og:title" content="([^"]+)"/)
-        if (titleM) base.goods_name = titleM[1].trim()
-        const brandM = detailHtml.match(/class="[^"]*brand[^"]*"[^>]*>\s*<(?:a|span)[^>]*>([^<]+)<\/(?:a|span)>/)
-        if (brandM) base.brand = brandM[1].trim()
-      }
-    } catch { /* 상품명 없어도 전성분은 반환 */ }
-
-    base.ingredients_raw = raw
-    base.ingredients = raw.split(',').map(s => s.trim()).filter(Boolean)
-    base.available = true
-    return base
-  } catch {
-    return base
-  }
-}
 
 function buildMcpServer(): McpServer {
   const server = new McpServer({
@@ -350,7 +297,7 @@ function buildMcpServer(): McpServer {
     '올리브영 상품 전성분 조회. goods_no를 입력하면 해당 상품의 화장품 전성분 원문을 반환. available=false면 전성분 정보 없음.',
     { goods_no: z.string().describe('올리브영 상품 번호 (예: A000000257580). get_market_rankings 결과에서 확인 가능.') },
     async ({ goods_no }) => {
-      const data = await scrapeIngredients(goods_no)
+      const data = await getIngredients(goods_no)
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
     }
   )

@@ -73,7 +73,9 @@ def init_db(conn=None):
                     ADD COLUMN IF NOT EXISTS price INTEGER,
                     ADD COLUMN IF NOT EXISTS volume TEXT,
                     ADD COLUMN IF NOT EXISTS bundle_info TEXT,
-                    ADD COLUMN IF NOT EXISTS detail_fetched_at DATE
+                    ADD COLUMN IF NOT EXISTS detail_fetched_at DATE,
+                    ADD COLUMN IF NOT EXISTS ingredients_raw TEXT,
+                    ADD COLUMN IF NOT EXISTS ingredients_fetched_at DATE
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS reviews (

@@ -1851,6 +1851,38 @@ export async function getCompetitorInsights(category?: string): Promise<import('
   }
 }
 
+/** 전성분 조회 — DB에 저장된 값 반환. 없으면 available: false */
+export async function getIngredients(goodsNo: string): Promise<{
+  goods_no: string
+  goods_name: string
+  brand: string
+  ingredients_raw: string
+  ingredients: string[]
+  available: boolean
+  source: string
+}> {
+  const rows = await query<{ goods_no: string; goods_name: string | null; ingredients_raw: string | null }>(`
+    SELECT goods_no, goods_name, ingredients_raw
+    FROM products
+    WHERE goods_no = $1
+  `, [goodsNo])
+  const row = rows[0]
+  if (!row || !row.ingredients_raw) {
+    return { goods_no: goodsNo, goods_name: row?.goods_name ?? '', brand: '', ingredients_raw: '', ingredients: [], available: false, source: 'oliveyoung' }
+  }
+  const raw = row.ingredients_raw
+  const brandM = raw.match(/^(?:\[[^\]]+\]\s*)?([^\s[，,]+)/)
+  return {
+    goods_no: goodsNo,
+    goods_name: row.goods_name ?? '',
+    brand: '',
+    ingredients_raw: raw,
+    ingredients: raw.split(',').map(s => s.trim()).filter(Boolean),
+    available: true,
+    source: 'oliveyoung',
+  }
+}
+
 /** 오늘의 데일리 브리핑 조회 (없으면 null) */
 export async function getDailyBrief(): Promise<{ brief_date: string; brief_text: string; generated_at: string } | null> {
   const rows = await query<{ brief_date: string; brief_text: string; generated_at: string }>(`
