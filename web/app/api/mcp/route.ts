@@ -40,52 +40,36 @@ async function scrapeIngredients(goodsNo: string): Promise<{
 }> {
   const base = { goods_no: goodsNo, goods_name: '', brand: '', ingredients_raw: '', ingredients: [] as string[], available: false, source: 'oliveyoung' }
   try {
-    const url = `https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=${encodeURIComponent(goodsNo)}`
-    const res = await fetch(url, { headers: _OY_HEADERS, signal: AbortSignal.timeout(15000) })
-    if (!res.ok) return base
-    const html = await res.text()
+    // 상품 법정 정보 AJAX 엔드포인트 (전성분 포함)
+    const artcUrl = `https://www.oliveyoung.co.kr/store/goods/getGoodsArtcAjax.do?goodsNo=${encodeURIComponent(goodsNo)}`
+    const artcRes = await fetch(artcUrl, { headers: _OY_HEADERS, signal: AbortSignal.timeout(15000) })
+    if (!artcRes.ok) return base
+    const artcHtml = await artcRes.text()
 
-    // 상품명
-    const titleM = html.match(/<meta property="og:title" content="([^"]+)"/)
-    if (titleM) base.goods_name = titleM[1].trim()
+    // "화장품법에 따라 기재해야 하는 모든 성분" dt → dd 추출
+    const ingM = artcHtml.match(/<dt[^>]*>화장품법에 따라 기재해야 하는 모든 성분<\/dt>\s*(?:<[^>]+>\s*)*<dd[^>]*>([\s\S]*?)<\/dd>/i)
+    if (!ingM) return base
 
-    // 브랜드 (og:description 또는 브랜드 태그)
-    const brandM = html.match(/class="[^"]*brand[^"]*"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/)
-                ?? html.match(/<span[^>]*itemprop="brand"[^>]*>([^<]+)<\/span>/)
-    if (brandM) base.brand = brandM[1].trim()
+    const raw = ingM[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (raw.length < 5) return base
 
-    // 전성분 파싱 — 여러 패턴 순서대로 시도
-    let raw = ''
-
-    // 패턴 1: <dt>전성분</dt><dd>...</dd>
-    const dtM = html.match(/<dt[^>]*>[^<]*전성분[^<]*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/i)
-    if (dtM) raw = dtM[1]
-
-    // 패턴 2: class에 ingredient/material 포함된 div/p
-    if (!raw) {
-      const clsM = html.match(/<(?:div|p)[^>]*class="[^"]*(?:ingredient|material|allergy)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|p)>/i)
-      if (clsM) raw = clsM[1]
-    }
-
-    // 패턴 3: "전성분" 텍스트 근처 200~2000자 텍스트 블록
-    if (!raw) {
-      const idx = html.search(/전\s*성\s*분/)
-      if (idx !== -1) {
-        const chunk = html.slice(idx, idx + 3000)
-        // 다음 태그 내용 추출 (태그 제거 후)
-        const afterM = chunk.match(/전\s*성\s*분[^<>]*(?:<[^>]+>)*([가-힣a-zA-Z0-9,\s\(\)\[\]\-\/\.%&*+]+)/)
-        if (afterM && afterM[1].length > 20) raw = afterM[1]
+    // 상품명 + 브랜드는 메인 페이지에서 (가볍게 시도, 실패해도 무관)
+    try {
+      const detailRes = await fetch(
+        `https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=${encodeURIComponent(goodsNo)}`,
+        { headers: _OY_HEADERS, signal: AbortSignal.timeout(10000) }
+      )
+      if (detailRes.ok) {
+        const detailHtml = await detailRes.text()
+        const titleM = detailHtml.match(/<meta property="og:title" content="([^"]+)"/)
+        if (titleM) base.goods_name = titleM[1].trim()
+        const brandM = detailHtml.match(/class="[^"]*brand[^"]*"[^>]*>\s*<(?:a|span)[^>]*>([^<]+)<\/(?:a|span)>/)
+        if (brandM) base.brand = brandM[1].trim()
       }
-    }
+    } catch { /* 상품명 없어도 전성분은 반환 */ }
 
-    if (!raw) return base
-
-    // HTML 태그 제거, 공백 정리
-    const cleaned = raw.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-    if (cleaned.length < 5) return base
-
-    base.ingredients_raw = cleaned
-    base.ingredients = cleaned.split(',').map(s => s.trim()).filter(Boolean)
+    base.ingredients_raw = raw
+    base.ingredients = raw.split(',').map(s => s.trim()).filter(Boolean)
     base.available = true
     return base
   } catch {
