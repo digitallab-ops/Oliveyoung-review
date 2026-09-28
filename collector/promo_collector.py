@@ -78,7 +78,7 @@ BASE_HEADERS = {
 
 # 올영픽 — 매월 기획전 교체. dispCatNo를 이벤트 목록에서 자동 탐색
 OLIVEPICK_URL = 'https://www.oliveyoung.co.kr/store/planshop/getPlanShopDetail.do'
-OLIVEPICK_CAT = '500000100019818'  # fallback — 자동 탐색 실패 시 사용
+OLIVEPICK_CAT = '5000001000199QH'  # fallback — 자동 탐색 실패 시 사용 (2026-09)
 
 EVENT_LIST_URL = 'https://www.oliveyoung.co.kr/store/main/getEventList.do'
 OLIVEPICK_EVT_KEYWORDS = ['올영PICK', '올영픽', 'OLIVEYOUNG PICK']
@@ -113,7 +113,7 @@ def fetch_olivepick_catno(session) -> str | None:
             if any(k in evtNm_el.get('value', '') for k in OLIVEPICK_EVT_KEYWORDS):
                 urlInfo_el = li.find('input', {'name': 'urlInfo'})
                 if urlInfo_el:
-                    m = re.search(r'dispCatNo=(\d+)', urlInfo_el.get('value', ''))
+                    m = re.search(r'dispCatNo=([A-Za-z0-9]+)', urlInfo_el.get('value', ''))
                     if m:
                         return m.group(1)
     except Exception as e:
