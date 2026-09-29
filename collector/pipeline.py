@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import requests
 import urllib.request
 import time
@@ -79,10 +80,12 @@ def revalidate_vercel():
     app_url = os.getenv('APP_URL', '').rstrip('/')
     if not app_url:
         return
+    secret = os.getenv('REVALIDATE_SECRET', '')
+    payload = json.dumps({'secret': secret}).encode() if secret else b'{}'
     try:
         req = urllib.request.Request(
             f'{app_url}/api/revalidate',
-            data=b'{}',
+            data=payload,
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
