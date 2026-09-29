@@ -158,18 +158,17 @@ def run(force: bool = False, log_path: str | None = None):
         init_db(conn=conn)
 
         with conn.cursor() as cur:
+            # 자사(is_competitor=false)를 먼저 처리 — 46개뿐이고 비교 기준이 됨
             if force:
                 cur.execute("""
                     SELECT goods_no, goods_name FROM products
-                    WHERE is_competitor = true
-                    ORDER BY goods_name
+                    ORDER BY is_competitor, goods_name
                 """)
             else:
                 cur.execute("""
                     SELECT goods_no, goods_name FROM products
-                    WHERE is_competitor = true
-                      AND detail_fetched_at IS NULL
-                    ORDER BY goods_name
+                    WHERE detail_fetched_at IS NULL
+                    ORDER BY is_competitor, goods_name
                 """)
             products = list(cur.fetchall())
 

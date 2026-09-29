@@ -5,8 +5,8 @@ $transcript = "$LOG_DIR\run_review_collector_$(Get-Date -Format 'yyyyMMdd_HHmmss
 Start-Transcript -Path $transcript -Append -Force | Out-Null
 try {
     . "$REPO\scripts\_common.ps1"
-    Invoke-Collector -module "collector.pipeline"       -label "Pipeline"      -timeoutMin 30
-    Invoke-Collector -module "collector.rank_collector" -label "RankCollector" -timeoutMin 10
+    Invoke-Collector -module "collector.pipeline"       -label "Pipeline"      -timeoutMin 30 -sentinelStage "review"
+    Invoke-Collector -module "collector.rank_collector" -label "RankCollector" -timeoutMin 10 -sentinelStage "rank"
 } catch {
     Write-Host "FATAL: $_"
 } finally {

@@ -79,12 +79,13 @@ def run(limit: int = BATCH_SIZE):
         stale_threshold = date.today() - timedelta(days=REFRESH_DAYS)
 
         with conn.cursor() as cur:
+            # 자사(is_competitor=false) 우선 — 46개뿐이고 가격 비교의 기준값
             cur.execute("""
                 SELECT goods_no, goods_name
                 FROM products
-                WHERE is_competitor = true
-                  AND (price IS NULL OR detail_fetched_at < %s)
+                WHERE (price IS NULL OR detail_fetched_at < %s)
                 ORDER BY
+                    is_competitor,
                     CASE WHEN price IS NULL THEN 0 ELSE 1 END,
                     COALESCE(detail_fetched_at, '2000-01-01') ASC
                 LIMIT %s
@@ -98,7 +99,7 @@ def run(limit: int = BATCH_SIZE):
 
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) cnt FROM products WHERE is_competitor=true AND price IS NULL"
+                "SELECT COUNT(*) cnt FROM products WHERE price IS NULL"
             )
             total_null = cur.fetchone()['cnt']
 

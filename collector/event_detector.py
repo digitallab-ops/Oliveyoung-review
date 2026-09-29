@@ -33,10 +33,13 @@ def _brand_name(goods_name: str) -> str:
 
 
 def detect_olivepick_changes(conn, today: date) -> list[dict]:
-    """이번 달 vs 저번 달 올영픽 입점/이탈 감지"""
+    """올영픽 입점/이탈 감지 — 이번 달 vs 데이터가 있는 직전 달.
+
+    올영픽은 월 단위로 큐레이션이 바뀌므로 비교는 월 경계에서만 의미가 있다.
+    매일 실행되더라도 같은 상품에 대해 한 달에 한 번만 이벤트를 남긴다.
+    """
     events = []
     this_month = today.strftime('%Y-%m')
-    prev_month = (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
 
     with conn.cursor() as cur:
         cur.execute("""
@@ -47,16 +50,39 @@ def detect_olivepick_changes(conn, today: date) -> list[dict]:
         """, (this_month,))
         this_set = {r['goods_no']: r for r in cur.fetchall()}
 
+        # 달력상 직전 달이 수집 장애로 비어 있을 수 있다 (2026-08: dispCatNo 형식 변경으로 0건).
+        # 그 경우 빈 집합과 비교하게 되어 이탈이 영원히 0건이 된다.
+        # → 데이터가 실제로 있는 가장 최근 이전 달을 기준으로 삼는다.
         cur.execute("""
-            SELECT goods_no, goods_name, category_name
+            SELECT TO_CHAR(collected_at, 'YYYY-MM') AS m
+            FROM promo_items
+            WHERE promo_type = 'olivepick'
+              AND TO_CHAR(collected_at, 'YYYY-MM') < %s
+            GROUP BY 1 ORDER BY 1 DESC LIMIT 1
+        """, (this_month,))
+        prev_row = cur.fetchone()
+        if not prev_row:
+            return []  # 비교 기준이 없으면 전부 신규로 보이므로 아무것도 내지 않는다
+        prev_month = prev_row['m']
+
+        cur.execute("""
+            SELECT goods_no
             FROM promo_items
             WHERE promo_type = 'olivepick'
               AND TO_CHAR(collected_at, 'YYYY-MM') = %s
         """, (prev_month,))
         prev_set = {r['goods_no'] for r in cur.fetchall()}
 
+        # 매일 실행되므로 이번 달에 이미 남긴 입점/이탈은 다시 내지 않는다
+        cur.execute("""
+            SELECT event_type, goods_no FROM brand_events
+            WHERE event_type IN ('olivepick_entry', 'olivepick_exit')
+              AND TO_CHAR(event_date, 'YYYY-MM') = %s
+        """, (this_month,))
+        already = {(r['event_type'], r['goods_no']) for r in cur.fetchall()}
+
     for gno, r in this_set.items():
-        if gno not in prev_set:
+        if gno not in prev_set and ('olivepick_entry', gno) not in already:
             events.append({
                 'event_date':   today,
                 'event_type':   'olivepick_entry',
@@ -67,7 +93,7 @@ def detect_olivepick_changes(conn, today: date) -> list[dict]:
             })
 
     for gno in prev_set:
-        if gno not in this_set:
+        if gno not in this_set and ('olivepick_exit', gno) not in already:
             with conn.cursor() as cur:
                 cur.execute("SELECT goods_name, category_name FROM promo_items WHERE goods_no=%s LIMIT 1", (gno,))
                 row = cur.fetchone()

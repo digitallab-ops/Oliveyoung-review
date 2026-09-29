@@ -46,7 +46,23 @@ function Get-Summary([string[]]$lines) {
     return ($result -join "`n")
 }
 
-function Invoke-Collector([string]$module, [string]$label, [int]$timeoutMin = 20, [string]$extraArgs = "") {
+# 파수꾼 — 수집기가 exit 0으로 끝나도 결과 데이터가 비었는지 확인한다.
+# 올영픽이 2026-08~09 두 달간 "성공적으로 0건 수집"하며 조용히 죽었던 사례 때문.
+function Invoke-Sentinel([string]$stage, [string]$logFile) {
+    if (-not $stage) { return }
+    Push-Location $REPO
+    try {
+        $out = & $PYTHON -m collector.sentinel $stage --quiet
+        "[SENTINEL:$stage]" | Out-File -Append -Encoding UTF8 $logFile
+        $out | Out-File -Append -Encoding UTF8 $logFile
+    } catch {
+        "[SENTINEL:$stage] 점검 실패: $_" | Out-File -Append -Encoding UTF8 $logFile
+    } finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Collector([string]$module, [string]$label, [int]$timeoutMin = 20, [string]$extraArgs = "", [string]$sentinelStage = "") {
     if (-not (Test-Path $LOG_DIR)) { New-Item -ItemType Directory -Path $LOG_DIR | Out-Null }
 
     $dateStr = Get-Date -Format "yyyyMMdd"
@@ -95,6 +111,9 @@ function Invoke-Collector([string]$module, [string]$label, [int]$timeoutMin = 20
         "[$end] OK" | Out-File -Append -Encoding UTF8 $logFile
         $summary = Get-Summary $outLines
         Send-Slack "[OY] OK  $label 완료 | $end`n$('=' * 20)`n$summary"
+
+        # exit 0이어도 데이터가 비었을 수 있다 — 파수꾼이 결과를 검증하고 이상 시 자체 알림
+        Invoke-Sentinel $sentinelStage $logFile
     }
 
     Get-ChildItem $LOG_DIR -Filter "*.log" |

@@ -5,7 +5,7 @@ $transcript = "$LOG_DIR\run_promo_collector_$(Get-Date -Format 'yyyyMMdd_HHmmss'
 Start-Transcript -Path $transcript -Append -Force | Out-Null
 try {
     . "$REPO\scripts\_common.ps1"
-    Invoke-Collector -module "collector.promo_collector" -label "PromoCollector" -timeoutMin 15
+    Invoke-Collector -module "collector.promo_collector" -label "PromoCollector" -timeoutMin 15 -sentinelStage "olivepick"
 } catch {
     Write-Host "FATAL: $_"
 } finally {

@@ -5,7 +5,7 @@ $transcript = "$LOG_DIR\run_price_collector_$(Get-Date -Format 'yyyyMMdd_HHmmss'
 Start-Transcript -Path $transcript -Append -Force | Out-Null
 try {
     . "$REPO\scripts\_common.ps1"
-    Invoke-Collector -module "collector.price_collector" -label "PriceCollector" -timeoutMin 90
+    Invoke-Collector -module "collector.price_collector" -label "PriceCollector" -timeoutMin 90 -sentinelStage "price"
 } catch {
     Write-Host "FATAL: $_"
 } finally {
