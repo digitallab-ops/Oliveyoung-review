@@ -14,9 +14,10 @@ const PROMO_LABELS: Record<string, string> = {
   daily_special: '하루특가',
 }
 
+// 올영픽·오특은 프로모션 탭에 함께 들어있다
 const TAB_ID: Record<string, string> = {
-  olivepick:  'olivepick',
-  today_deal: 'today_deal',
+  olivepick:  'promo',
+  today_deal: 'promo',
 }
 
 const DEFAULT_SHOW = 5

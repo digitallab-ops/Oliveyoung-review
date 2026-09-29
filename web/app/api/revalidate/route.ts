@@ -1,15 +1,18 @@
 import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
+import { auth } from '@/auth'
 import { getMarketRankings, getInsights, getProductNegatives } from '@/lib/db'
 import { generateMarketInsight, generateDailyBrief, generateReviewInsight } from '@/lib/ai'
 
 export const maxDuration = 60
 
 export async function POST(req: Request) {
+  // 두 경로로 호출된다: 수집 파이프라인(시크릿) / 화면의 새로고침 버튼(로그인 세션).
+  // middleware가 이 경로의 인증을 건너뛰므로 여기서 직접 확인한다.
   const secret = process.env.REVALIDATE_SECRET
   if (secret) {
     const body = await req.json().catch(() => ({}))
-    if (body.secret !== secret) {
+    if (body.secret !== secret && !(await auth())) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }

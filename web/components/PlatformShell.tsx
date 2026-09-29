@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import PlatformSelector, { type Platform } from '@/components/PlatformSelector'
+import { trackPlatform } from '@/lib/analytics'
 import KPIStrip from '@/components/KPIStrip'
 import DashboardTabs from '@/components/DashboardTabs'
 import CoupangDashboard from '@/components/CoupangDashboard'
@@ -11,7 +12,7 @@ import type {
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
   OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
-  CompetitorInsight,
+  CompetitorInsight, UnitPriceGroup, PriceChangeEntry,
 } from '@/lib/types'
 
 interface Props {
@@ -37,6 +38,8 @@ interface Props {
   productKeywords: ProductKeywordData[]
   productTopics: ProductTopicData[]
   competitorInsights: CompetitorInsight[]
+  unitPrices: UnitPriceGroup[]
+  priceChanges: PriceChangeEntry[]
 }
 
 export default function PlatformShell({
@@ -44,9 +47,11 @@ export default function PlatformShell({
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus,
-  productKeywords, productTopics, competitorInsights,
+  productKeywords, productTopics, competitorInsights, unitPrices, priceChanges,
 }: Props) {
   const [platform, setPlatform] = useState<Platform>('oliveyoung')
+
+  useEffect(() => { trackPlatform(platform) }, [platform])
 
   return (
     <div className="space-y-14">
@@ -124,6 +129,8 @@ export default function PlatformShell({
             productKeywords={productKeywords}
             productTopics={productTopics}
             competitorInsights={competitorInsights}
+            unitPrices={unitPrices}
+            priceChanges={priceChanges}
           />
         </>
       )}

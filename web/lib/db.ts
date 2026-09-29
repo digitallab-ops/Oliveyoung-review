@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry } from './types'
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1304,6 +1304,185 @@ export async function getPriceHistory(goodsNo: string, days = 90): Promise<Price
       WHERE goods_no = $1 AND recorded_date >= CURRENT_DATE - $2
       ORDER BY recorded_date ASC
     `, [goodsNo, days])
+  } catch { return [] }
+}
+
+// ─────────────────────────────────────────
+// 용량당 단가 비교
+// ─────────────────────────────────────────
+
+/** "50ml / 20ml" → 70ml, "70매" → 70매, "60g / 1g*7" → 67g
+ *  기획세트는 증정분까지 합산해야 실제 체감 단가가 나온다. */
+export function parseVolume(raw: string): { value: number; unit: string } | null {
+  if (!raw) return null
+  const parts = raw.match(/(\d+(?:\.\d+)?)\s*(ml|g|매|포|개)(?:\s*\*\s*(\d+))?/gi)
+  if (!parts?.length) return null
+
+  let total = 0
+  let unit = ''
+  for (const part of parts) {
+    const m = part.match(/(\d+(?:\.\d+)?)\s*(ml|g|매|포|개)(?:\s*\*\s*(\d+))?/i)
+    if (!m) continue
+    const u = m[2].toLowerCase()
+    // 단위가 섞인 표기는 첫 단위 기준으로만 합산한다 (ml과 매는 더할 수 없다)
+    if (!unit) unit = u
+    else if (u !== unit) continue
+    total += parseFloat(m[1]) * (m[3] ? parseInt(m[3], 10) : 1)
+  }
+  return total > 0 && unit ? { value: total, unit } : null
+}
+
+function median(nums: number[]): number | null {
+  if (!nums.length) return null
+  const s = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
+/** 자사 제품별 용량당 단가 비교.
+ *
+ *  카테고리+단위만으로 묶으면 800ml 수딩젤과 35ml 선크림이 같은 그룹에 들어가
+ *  원/ml 비교가 무의미해진다. 자사 제품 각각에 대해 같은 카테고리·단위이면서
+ *  용량이 0.5~2배 범위인 경쟁사만 비교 대상으로 삼는다. */
+export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
+  try {
+    const rows = await query<{
+      goods_no: string; goods_name: string; is_competitor: boolean
+      price: number; volume: string; category_name: string; rank_position: number | null
+    }>(`
+      SELECT DISTINCT ON (p.goods_no, mr.category_name)
+        p.goods_no, p.goods_name, p.is_competitor, p.price, p.volume,
+        mr.category_name, mr.rank_position
+      FROM products p
+      JOIN market_rankings mr ON mr.goods_no = p.goods_no
+      WHERE p.price IS NOT NULL AND p.volume IS NOT NULL
+        AND mr.rank_date = (SELECT MAX(rank_date) FROM market_rankings)
+        AND mr.category_name <> '전체'
+      ORDER BY p.goods_no, mr.category_name, mr.rank_position
+    `)
+
+    const toEntry = (r: typeof rows[number], vol: { value: number; unit: string }): UnitPriceEntry => ({
+      goods_no: r.goods_no,
+      goods_name: r.goods_name,
+      brand_name: r.goods_name.replace(/\[[^\]]*\]/g, '').trim().split(/\s+/)[0] ?? '',
+      is_ours: !r.is_competitor,
+      rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+      price: Number(r.price),
+      volume_raw: r.volume,
+      volume_value: vol.value,
+      volume_unit: vol.unit,
+      unit_price: Math.round((Number(r.price) / vol.value) * 10) / 10,
+    })
+
+    const parsed: { entry: UnitPriceEntry; category: string }[] = []
+    for (const r of rows) {
+      const vol = parseVolume(r.volume)
+      if (!vol || !Number(r.price)) continue
+      parsed.push({ entry: toEntry(r, vol), category: r.category_name })
+    }
+
+    const out: UnitPriceGroup[] = []
+    const seen = new Set<string>()
+
+    for (const { entry: ours, category } of parsed) {
+      if (!ours.is_ours) continue
+      // 한 상품이 여러 카테고리에 걸쳐 있으면 순위가 가장 높은 카테고리 하나만 쓴다
+      if (seen.has(ours.goods_no)) continue
+
+      const rivals = parsed
+        .filter(p =>
+          !p.entry.is_ours &&
+          p.category === category &&
+          p.entry.volume_unit === ours.volume_unit &&
+          p.entry.volume_value >= ours.volume_value * 0.5 &&
+          p.entry.volume_value <= ours.volume_value * 2
+        )
+        .map(p => p.entry)
+        .sort((a, b) => a.unit_price - b.unit_price)
+
+      if (rivals.length < 2) continue  // 비교군이 너무 적으면 판단 근거가 안 된다
+      seen.add(ours.goods_no)
+
+      const rivalMedian = median(rivals.map(r => r.unit_price))
+      const diffPct = rivalMedian
+        ? Math.round(((ours.unit_price - rivalMedian) / rivalMedian) * 1000) / 10
+        : 0
+
+      out.push({
+        category_name: category,
+        unit: ours.volume_unit,
+        ours,
+        rivals: rivals.slice(0, 6),
+        rival_median: rivalMedian,
+        position: diffPct > 10 ? 'pricier' : diffPct < -10 ? 'cheaper' : 'similar',
+        diff_pct: diffPct,
+      })
+    }
+
+    // 경쟁사 대비 비싼 순 — 가격 저항이 큰 제품이 먼저 보여야 한다
+    out.sort((a, b) => b.diff_pct - a.diff_pct)
+    return out
+  } catch { return [] }
+}
+
+// ─────────────────────────────────────────
+// 경쟁사 가격 변동
+// ─────────────────────────────────────────
+
+/** 최근 N일 내 가격이 변한 상품. 경쟁사 인하는 프로모션 대응 타이밍 신호다. */
+export async function getPriceChanges(days = 14, minPct = 5): Promise<PriceChangeEntry[]> {
+  try {
+    const rows = await query<{
+      goods_no: string; goods_name: string; is_competitor: boolean
+      category_name: string | null; rank_position: number | null
+      price_before: number; price_after: number; changed_on: string
+    }>(`
+      WITH bounds AS (
+        SELECT goods_no,
+               MIN(recorded_date) AS first_date,
+               MAX(recorded_date) AS last_date
+        FROM price_history
+        WHERE recorded_date >= CURRENT_DATE - $1
+        GROUP BY goods_no
+        HAVING COUNT(DISTINCT price) > 1
+      )
+      SELECT p.goods_no, p.goods_name, p.is_competitor,
+             mr.category_name, mr.rank_position,
+             pf.price AS price_before, pl.price AS price_after,
+             b.last_date::text AS changed_on
+      FROM bounds b
+      JOIN price_history pf ON pf.goods_no = b.goods_no AND pf.recorded_date = b.first_date
+      JOIN price_history pl ON pl.goods_no = b.goods_no AND pl.recorded_date = b.last_date
+      JOIN products p ON p.goods_no = b.goods_no
+      LEFT JOIN LATERAL (
+        SELECT category_name, rank_position FROM market_rankings
+        WHERE goods_no = b.goods_no
+          AND rank_date = (SELECT MAX(rank_date) FROM market_rankings)
+          AND category_name <> '전체'
+        ORDER BY rank_position LIMIT 1
+      ) mr ON true
+      WHERE pf.price > 0 AND pl.price <> pf.price
+        AND ABS(pl.price - pf.price) * 100.0 / pf.price >= $2
+      ORDER BY ABS(pl.price - pf.price) * 100.0 / pf.price DESC
+      LIMIT 40
+    `, [days, minPct])
+
+    return rows.map(r => {
+      const before = Number(r.price_before)
+      const after = Number(r.price_after)
+      return {
+        goods_no: r.goods_no,
+        goods_name: r.goods_name,
+        brand_name: r.goods_name.replace(/\[[^\]]*\]/g, '').trim().split(/\s+/)[0] ?? '',
+        is_ours: !r.is_competitor,
+        category_name: r.category_name,
+        rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+        price_before: before,
+        price_after: after,
+        change_pct: Math.round(((after - before) / before) * 1000) / 10,
+        changed_on: r.changed_on,
+      }
+    })
   } catch { return [] }
 }
 

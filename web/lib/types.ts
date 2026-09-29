@@ -286,6 +286,45 @@ export interface PriceHistoryPoint {
   price: number
 }
 
+export interface UnitPriceEntry {
+  goods_no: string
+  goods_name: string
+  brand_name: string
+  is_ours: boolean
+  rank_position: number | null
+  price: number
+  volume_raw: string
+  volume_value: number
+  volume_unit: string
+  unit_price: number
+}
+
+/** 자사 제품 1개 + 용량대가 비슷한 경쟁사들.
+ *  800ml 대용량과 35ml 앰플은 원/ml로 비교해도 의미가 없으므로 용량대를 맞춘다. */
+export interface UnitPriceGroup {
+  category_name: string
+  unit: string
+  ours: UnitPriceEntry
+  rivals: UnitPriceEntry[]
+  rival_median: number | null
+  /** 경쟁사 중앙값 대비 자사 위치 */
+  position: 'cheaper' | 'similar' | 'pricier'
+  diff_pct: number
+}
+
+export interface PriceChangeEntry {
+  goods_no: string
+  goods_name: string
+  brand_name: string
+  is_ours: boolean
+  category_name: string | null
+  rank_position: number | null
+  price_before: number
+  price_after: number
+  change_pct: number
+  changed_on: string
+}
+
 export interface RepurchaseTrendPoint {
   month: string
   repurchase_pct: number

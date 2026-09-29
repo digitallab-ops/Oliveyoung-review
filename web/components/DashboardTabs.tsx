@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { trackTab } from '@/lib/analytics'
 import type {
   Insights, TimeSeriesPoint, ProductNegativeData, ScoreDist,
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
   OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
-  CompetitorInsight,
+  CompetitorInsight, UnitPriceGroup, PriceChangeEntry,
 } from '@/lib/types'
 
 import InsightCards from '@/components/InsightCards'
@@ -27,6 +28,8 @@ import OlivepickTab from '@/components/OlivepickTab'
 import TodayDealTab from '@/components/TodayDealTab'
 import ActionLogWidget from '@/components/ActionLogWidget'
 import BrandTimeline from '@/components/BrandTimeline'
+import UnitPriceSection from '@/components/UnitPriceSection'
+import PriceChangeSection from '@/components/PriceChangeSection'
 
 interface Props {
   insights: Insights
@@ -50,6 +53,8 @@ interface Props {
   productKeywords: ProductKeywordData[]
   productTopics: ProductTopicData[]
   competitorInsights: CompetitorInsight[]
+  unitPrices: UnitPriceGroup[]
+  priceChanges: PriceChangeEntry[]
 }
 
 function renderBold(text: string): React.ReactNode {
@@ -62,14 +67,13 @@ function renderBold(text: string): React.ReactNode {
   )
 }
 
+// 데이터 출처가 아니라 "무엇을 결정하려는가"로 나눈다.
 const TABS = [
-  { id: 'today',       label: '오늘 현황' },
-  { id: 'reviews',     label: '리뷰 분석' },
-  { id: 'market',      label: '시장 랭킹' },
-  { id: 'competitor',  label: '경쟁사 분석' },
-  { id: 'olivepick',   label: '올영픽' },
-  { id: 'today_deal',  label: '오특' },
-  { id: 'history',     label: '이력' },
+  { id: 'today',      label: '오늘',      desc: '뭐가 달라졌나' },
+  { id: 'planning',   label: '제품 기획',  desc: '다음에 뭘 낼까' },
+  { id: 'competitor', label: '경쟁사',    desc: '누가 치고 오나' },
+  { id: 'promo',      label: '프로모션',   desc: '올영픽·오특에 뭘 넣을까' },
+  { id: 'reviews',    label: '리뷰·CS',   desc: '뭐가 불만인가' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -79,11 +83,14 @@ export default function DashboardTabs({
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics,
-  competitorInsights,
+  competitorInsights, unitPrices, priceChanges,
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
   const [refreshing, setRefreshing] = useState(false)
   const [refreshed, setRefreshed] = useState(false)
+
+  // 어떤 탭이 실제로 쓰이는지 GA로 확인 — SPA라 탭 전환이 page_view로 잡히지 않는다
+  useEffect(() => { trackTab(active, 'oliveyoung') }, [active])
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return
@@ -107,6 +114,7 @@ export default function DashboardTabs({
               <button
                 key={tab.id}
                 onClick={() => setActive(tab.id)}
+                title={tab.desc}
                 className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
                   active === tab.id
                     ? 'border-accent text-text-primary'
@@ -208,12 +216,9 @@ export default function DashboardTabs({
           </div>
         )}
 
-        {/* 리뷰 분석 */}
+        {/* 리뷰·CS — 뭐가 불만인가 */}
         {active === 'reviews' && (
           <div className="space-y-10">
-            {/* 신제품 리뷰 현황 */}
-            <NewProductInsights products={newProducts} />
-
             {/* 부정 이슈 급증 알림 */}
             {negativeAlerts.length > 0 && (
               <div>
@@ -279,27 +284,31 @@ export default function DashboardTabs({
             {negativeData.length > 0 && <NegativeInsights data={negativeData} />}
             <StatsAccordion scoreDist={scoreDist} productStats={productStats} />
             <ProductSummarySection summaries={summaries} />
+            <InsightsHistory history={insightsHistory} />
           </div>
         )}
 
-        {/* 시장 랭킹 */}
-        {active === 'market' && (
-          <div>
-            {marketRankings.length > 0
-              ? <MarketRankingSection data={marketRankings} aiInsight={aiInsight} />
-              : (
-                <div className="border border-dashed border-border rounded-lg px-6 py-12 text-center">
-                  <p className="text-sm text-text-secondary">시장 랭킹 데이터가 없어요</p>
-                  <p className="text-xs text-text-tertiary mt-1">매일 오전 6시 자동 수집됩니다</p>
-                </div>
-              )
-            }
+        {/* 제품 기획 — 다음에 뭘 낼까 */}
+        {active === 'planning' && (
+          <div className="space-y-10">
+            <UnitPriceSection groups={unitPrices} />
+            <NewProductInsights products={newProducts} />
+            {marketRankings.length > 0 && (
+              <MarketRankingSection data={marketRankings} aiInsight={aiInsight} />
+            )}
+            {unitPrices.length === 0 && marketRankings.length === 0 && (
+              <div className="border border-dashed border-border rounded-lg px-6 py-12 text-center">
+                <p className="text-sm text-text-secondary">기획 참고 데이터가 없어요</p>
+                <p className="text-xs text-text-tertiary mt-1">매일 오전 6시 자동 수집됩니다</p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* 경쟁사 분석 */}
+        {/* 경쟁사 — 누가 치고 오나 */}
         {active === 'competitor' && (
           <div className="space-y-10">
+            <PriceChangeSection changes={priceChanges} />
             <CompetitorSection summaries={competitorSummaries} insights={competitorInsights} />
             <div>
               <SectionDivider tag="브랜드 타임라인" />
@@ -312,16 +321,13 @@ export default function DashboardTabs({
           </div>
         )}
 
-        {/* 이력 */}
-        {active === 'history' && (
-          <InsightsHistory history={insightsHistory} />
+        {/* 프로모션 — 올영픽·오특에 뭘 넣을까 */}
+        {active === 'promo' && (
+          <div className="space-y-12">
+            <OlivepickTab />
+            <TodayDealTab />
+          </div>
         )}
-
-        {/* 올영픽 */}
-        {active === 'olivepick' && <OlivepickTab />}
-
-        {/* 오특 */}
-        {active === 'today_deal' && <TodayDealTab />}
       </div>
 
       {/* 실행 기록 플로팅 버튼 */}
