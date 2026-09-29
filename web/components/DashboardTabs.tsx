@@ -147,8 +147,16 @@ export default function DashboardTabs({
                   <ul className="space-y-2">
                     {dailyBrief
                       .split('\n')
-                      .map(l => l.replace(/^\[.*?\]\s*/, '').replace(/^#+\s*/, '').replace(/^[\s\-·•\d.]+/, '').trim())
-                      .filter(l => l.length > 10)
+                      .map(l => l
+                        .replace(/^\[.*?\]\s*/, '')
+                        .replace(/^#+\s*/, '')
+                        .replace(/^\*+\d+\.\s*/, '')
+                        .replace(/^\*+/, '')
+                        .replace(/\*+$/, '')
+                        .replace(/^[\s\-·•\d.→]+/, '')
+                        .trim()
+                      )
+                      .filter(l => l.length > 10 && !/^\*+\d+/.test(l))
                       .map((msg, i) => (
                         <li key={i} className="text-sm text-accent-fg flex items-start gap-2">
                           <span className="text-accent shrink-0 mt-0.5 font-bold text-base leading-none">·</span>

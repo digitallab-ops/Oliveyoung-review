@@ -10,7 +10,7 @@ function getClient() {
 
 const MODEL = 'gpt-5.4-mini'
 
-const NO_MARKDOWN_SYSTEM = '당신은 올리브영 뷰티 시장 전문 분석가입니다. 출력 규칙: 1) 모든 줄은 반드시 "- "로 시작하세요. 2) 마크다운 서식 금지(#, ##, **, __, >, `, ~, 이모지 등). 3) 데이터 재나열 금지 — 해석과 판단만 써라. 4) 각 bullet은 마케터가 즉시 행동할 수 있는 하나의 전략적 결론을 담아야 한다. 5) bullet 사이 빈 줄 없이 연속 작성.'
+const NO_MARKDOWN_SYSTEM = '당신은 올리브영 뷰티 시장 전문 분석가입니다. 출력 규칙: 1) 모든 줄은 반드시 "- "로 시작하세요. 2) 마크다운·특수문자 서식 완전 금지(*, **, #, __, >, `, ~, 이모지, 번호+점 등 어떤 형식도 금지). 3) 섹션 제목 금지 — "리뷰 분석:", "순위:" 같은 카테고리 구분 없이 바로 인사이트 bullet로만 작성. 4) 데이터 재나열 금지 — 해석과 판단만 써라. 5) 각 bullet은 마케터가 즉시 행동할 수 있는 하나의 전략적 결론을 담아야 한다. 6) bullet 사이 빈 줄 없이 연속 작성. 7) 첫 글자부터 "- "로 시작하라. 다른 어떤 것도 출력하지 마라.'
 
 function getKSTDateStr(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -20,6 +20,21 @@ function getKSTDateStr(): string {
 function getSlot(): 'am' | 'pm' {
   const kstHour = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours()
   return kstHour < 13 ? 'am' : 'pm'
+}
+
+function getSeasonContext(): string {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  const month = kst.getUTCMonth() + 1 // 1-12
+  const day = kst.getUTCDate()
+  const dateStr = `${kst.getUTCFullYear()}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  if (month === 12 || month <= 2) return `지금은 겨울(${dateStr}) — 보습·보온 수요, 건조한 피부 고민 집중`
+  if (month === 3) return `지금은 초봄(${dateStr}) — 봄 환절기 진입, 미세먼지·봄 맞이 스킨케어 수요 상승`
+  if (month <= 5) return `지금은 봄(${dateStr}) — 자외선 시작, 선케어 수요 진입, 가벼운 제형 선호`
+  if (month === 6) return `지금은 초여름(${dateStr}) — 선케어 피크 직전, 쿨링 수요 급상승`
+  if (month <= 8) return `지금은 여름(${dateStr}) — 선케어·쿨링 피크 시즌, 땀·모공·각질 케어 수요`
+  if (month === 9) return `지금은 초가을(${dateStr}) — 여름 마무리, 쿨링 수요 감소 시작, 보습·환절기 케어 전환기`
+  if (month === 10) return `지금은 가을(${dateStr}) — 환절기 민감성 피부 수요, 진정·보습 강화`
+  return `지금은 늦가을(${dateStr}) — 겨울 진입 전, 집중 보습·트러블 케어 수요`
 }
 
 async function chat(system: string, user: string, maxTokens: number): Promise<string> {
@@ -89,10 +104,14 @@ ${topNeg.length ? topNeg.join('\n') : '없음'}
 자사 긍정 키워드: ${posKw}
 
 오늘 이 대시보드를 처음 여는 마케터가 10초 안에 파악해야 할 것 4~5가지를 써라.
-- 단순 현황 나열 금지. '무엇이 변했고, 왜 중요하고, 오늘 무엇을 할지'가 한 문장에 담겨야 한다.
-- 긴급도 순으로 정렬하라. 지금 당장 행동이 필요한 것이 먼저.
-- 수치는 변화 맥락(대비, 증감)이 있을 때만 인용하라.
-- 제목줄 작성 금지, 바로 - 로 시작`
+
+규칙:
+- 섹션 제목·번호·카테고리 구분 없이 바로 - bullet으로 시작하라
+- 각 bullet: '무엇이 변했고, 왜 중요하고, 오늘 무엇을 할지'가 한 문장에 담겨야 한다
+- 긴급도 순으로 정렬하라. 지금 당장 행동이 필요한 것이 먼저
+- 수치는 변화 맥락(대비, 증감)이 있을 때만 인용하라
+- "이는 ~을 나타냅니다", "~에 긍정적입니다" 같은 해설 문장 금지 — 결론만
+- 첫 글자부터 "- "로 시작`
 }
 
 export async function generateDailyBrief(
@@ -189,7 +208,7 @@ ${ours.length ? ours.join(', ') : 'TOP100 없음'}
 - 순위 숫자를 그대로 읽지 마라. 그 숫자가 의미하는 소비자 선택, 마케팅 효과, 시장 구조를 해석하라.
 - 셀퓨전씨 포지션이 좋으면 → 어떻게 더 올릴지. 나쁘면 → 왜 밀리고 있고 어떤 카테고리로 집중해야 하는지.
 - 경쟁사 1위 브랜드의 전략(번들, 콜라보, 올영픽 등)에서 셀퓨전씨가 배울 것 or 대응할 것을 짚어라.
-- 계절/시점 맥락을 반드시 반영하라 (지금은 초여름 — 선케어 피크, 쿨링 수요 상승 등).
+- 계절/시점 맥락을 반드시 반영하라 (${getSeasonContext()}).
 - 제목줄 작성 금지, 바로 - 로 시작`
 }
 

@@ -5,8 +5,12 @@ export default auth((req) => {
   const { pathname } = req.nextUrl
   const isLoggedIn = !!req.auth
 
-  // 인증 불필요: NextAuth 라우트, MCP 엔드포인트
-  if (pathname.startsWith("/api/auth") || pathname.startsWith("/api/mcp")) {
+  // 인증 불필요: NextAuth 라우트, MCP 엔드포인트, 캐시 revalidate
+  if (
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/mcp") ||
+    pathname.startsWith("/api/revalidate")
+  ) {
     return NextResponse.next()
   }
 

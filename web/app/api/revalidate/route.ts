@@ -5,7 +5,15 @@ import { generateMarketInsight, generateDailyBrief, generateReviewInsight } from
 
 export const maxDuration = 60
 
-export async function POST() {
+export async function POST(req: Request) {
+  const secret = process.env.REVALIDATE_SECRET
+  if (secret) {
+    const body = await req.json().catch(() => ({}))
+    if (body.secret !== secret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   revalidatePath('/')
 
   // 수집 완료 직후 AI 캐시 워밍업 — 페이지 렌더 전에 DB에 결과 저장
