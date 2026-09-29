@@ -51,6 +51,14 @@ function GroupCard({ g }: { g: UnitPriceGroup }) {
             <p className="text-sm font-medium text-text-primary truncate">
               {shortName(g.ours.goods_name)}
             </p>
+            {/* 비싼데 랭킹 밖이면 가격 저항을 의심할 신호 */}
+            {g.ours.rank_position != null ? (
+              <span className="shrink-0 text-[10px] font-semibold text-accent">
+                {g.ours.rank_position}위
+              </span>
+            ) : (
+              <span className="shrink-0 text-[10px] text-text-tertiary/70">랭킹밖</span>
+            )}
           </div>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-base font-semibold text-accent-fg">
@@ -115,7 +123,9 @@ function GroupCard({ g }: { g: UnitPriceGroup }) {
 export default function UnitPriceSection({ groups }: Props) {
   if (groups.length === 0) return null
 
-  const pricier = groups.filter(g => g.position === 'pricier').length
+  const pricier = groups.filter(g => g.position === 'pricier')
+  // 경쟁사보다 비싼데 랭킹에도 없으면 가격 저항을 가장 먼저 의심해야 한다
+  const atRisk = pricier.filter(g => g.ours.rank_position == null)
 
   return (
     <div>
@@ -127,9 +137,24 @@ export default function UnitPriceSection({ groups }: Props) {
         </div>
         <p className="text-xs text-text-tertiary mt-1">
           같은 카테고리에서 용량대가 비슷한 경쟁사와 비교합니다
-          {pricier > 0 && ` · 경쟁사보다 비싼 제품 ${pricier}개`}
+          {pricier.length > 0 && ` · 경쟁사보다 비싼 제품 ${pricier.length}개`}
         </p>
       </div>
+
+      {atRisk.length > 0 && (
+        <div className="mb-3 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <span className="text-amber-600 font-bold text-base shrink-0 leading-none mt-0.5">!</span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-amber-800">
+              비싼데 순위권 밖인 제품 {atRisk.length}개
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {atRisk.slice(0, 3).map(g => shortName(g.ours.goods_name)).join(' · ')}
+              {atRisk.length > 3 && ` 외 ${atRisk.length - 3}개`}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         {groups.map(g => (

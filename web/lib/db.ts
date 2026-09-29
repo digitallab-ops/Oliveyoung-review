@@ -1346,7 +1346,28 @@ function median(nums: number[]): number | null {
  *  용량이 0.5~2배 범위인 경쟁사만 비교 대상으로 삼는다. */
 export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
   try {
-    const rows = await query<{
+    // 자사는 오늘 랭킹 진입 여부와 무관하게 전부 포함한다.
+    // 랭킹에 못 든 제품이야말로 가격 저항을 의심해야 할 대상이다.
+    // 카테고리는 과거 랭킹 이력에서 가장 최근 것을 쓴다.
+    const oursRows = await query<{
+      goods_no: string; goods_name: string; is_competitor: boolean
+      price: number; volume: string; category_name: string; rank_position: number | null
+    }>(`
+      SELECT DISTINCT ON (p.goods_no)
+        p.goods_no, p.goods_name, p.is_competitor, p.price, p.volume,
+        mr.category_name,
+        CASE WHEN mr.rank_date = (SELECT MAX(rank_date) FROM market_rankings)
+             THEN mr.rank_position END AS rank_position
+      FROM products p
+      JOIN market_rankings mr ON mr.goods_no = p.goods_no
+      WHERE p.is_competitor = false
+        AND p.price IS NOT NULL AND p.volume IS NOT NULL
+        AND mr.category_name <> '전체'
+      ORDER BY p.goods_no, mr.rank_date DESC, mr.rank_position
+    `)
+
+    // 경쟁사는 현재 시장을 봐야 하므로 오늘 랭킹 기준
+    const rivalRows = await query<{
       goods_no: string; goods_name: string; is_competitor: boolean
       price: number; volume: string; category_name: string; rank_position: number | null
     }>(`
@@ -1355,11 +1376,14 @@ export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
         mr.category_name, mr.rank_position
       FROM products p
       JOIN market_rankings mr ON mr.goods_no = p.goods_no
-      WHERE p.price IS NOT NULL AND p.volume IS NOT NULL
+      WHERE p.is_competitor = true
+        AND p.price IS NOT NULL AND p.volume IS NOT NULL
         AND mr.rank_date = (SELECT MAX(rank_date) FROM market_rankings)
         AND mr.category_name <> '전체'
       ORDER BY p.goods_no, mr.category_name, mr.rank_position
     `)
+
+    const rows = [...oursRows, ...rivalRows]
 
     const toEntry = (r: typeof rows[number], vol: { value: number; unit: string }): UnitPriceEntry => ({
       goods_no: r.goods_no,
