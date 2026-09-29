@@ -177,13 +177,77 @@ def _send_slack(text: str) -> None:
 
 # ── 실행 ─────────────────────────────────────────────────
 
+def _check_taxonomy(conn) -> tuple[list[str], list[str]]:
+    """분류 키워드 목록이 낡았는지 점검한다.
+
+    하드코딩된 목록은 반드시 낡는다. 새 성분 트렌드나 마케팅 용어가 나오면
+    조용히 미분류로 빠진다 (PDRN이 78회 등장하는데 목록에 없었던 것이 그 예).
+    커버리지 하락과 미등록 빈출어를 감시해 목록을 갱신할 시점을 알린다.
+    """
+    from collector.taxonomy import coverage, discover
+
+    passed: list[str] = []
+    failed: list[str] = []
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT ON (goods_no) goods_name
+            FROM market_rankings
+            WHERE rank_date >= CURRENT_DATE - 30 AND goods_name IS NOT NULL
+        """)
+        market = [r['goods_name'] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+        cur.execute("""
+            SELECT goods_name FROM products
+            WHERE is_competitor = false AND goods_name IS NOT NULL
+        """)
+        ours = [r['goods_name'] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+
+    if not ours:
+        return passed, ['⚠️ 분류 점검 — 자사 상품이 없어 건너뜀']
+
+    # 자사는 우리가 직접 아는 제품이므로 100%에 가까워야 한다
+    ours_cov = coverage(ours, 'efficacy')
+    if ours_cov < 90:
+        failed.append(
+            f"❌ 자사 효능 분류 커버리지: {ours_cov}% (기준 90% 미만)\n"
+            f"     → 신제품 라인의 용어가 taxonomy.EFFICACY에 없다"
+        )
+    else:
+        passed.append(f"✅ 자사 효능 분류 커버리지: {ours_cov}%")
+
+    # 시장은 헤어·바디·향수까지 섞여 있어 낮은 것이 정상. 급락만 본다.
+    mkt_cov = coverage(market, 'efficacy')
+    if mkt_cov < 35:
+        failed.append(
+            f"❌ 시장 효능 분류 커버리지: {mkt_cov}% (기준 35% 미만)\n"
+            f"     → 시장 용어가 크게 바뀌었을 수 있다"
+        )
+    else:
+        passed.append(f"✅ 시장 효능 분류 커버리지: {mkt_cov}%")
+
+    # 자주 나오는데 어느 축에도 안 걸리는 말 = 목록에 추가할 후보
+    candidates = [c for c in discover(market, min_count=30) if c[2] == 'tag']
+    if len(candidates) > 5:
+        top = ', '.join(f"{t}({n}회)" for t, n, _ in candidates[:6])
+        failed.append(
+            f"❌ 미등록 빈출 포지셔닝어 {len(candidates)}개 (기준 5개 초과)\n"
+            f"     → {top}\n"
+            f"     → taxonomy.py에 추가할지 검토 필요"
+        )
+    else:
+        passed.append(f"✅ 미등록 빈출 포지셔닝어: {len(candidates)}개")
+
+    return passed, failed
+
+
 def verify(stage: str | None = None, notify: bool = True, quiet: bool = False) -> bool:
     """지정 단계(또는 전체)를 점검한다. 모두 통과하면 True.
 
     quiet=True면 실패가 있을 때만 Slack을 보낸다.
     """
     targets = [c for c in CHECKS if stage is None or c.stage == stage]
-    if not targets:
+    run_taxonomy = stage in (None, 'taxonomy')
+    if not targets and not run_taxonomy:
         print(f"'{stage}' 단계에 정의된 점검이 없습니다", flush=True)
         return True
 
@@ -212,6 +276,14 @@ def verify(stage: str | None = None, notify: bool = True, quiet: bool = False) -
                     )
                 else:
                     passed.append(f"✅ {c.label}: {num}{c.unit}")
+
+        if run_taxonomy:
+            try:
+                tp, tf = _check_taxonomy(conn)
+                passed += tp
+                failed += tf
+            except Exception as e:
+                failed.append(f"⚠️ 분류 점검 실패: {str(e).splitlines()[0][:80]}")
     finally:
         conn.close()
 
