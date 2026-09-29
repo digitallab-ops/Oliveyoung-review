@@ -60,6 +60,17 @@ CHECKS: list[Check] = [
         threshold=1, mode='max', unit='일 경과',
         hint='rank_collector가 매시간 돌아야 함',
     ),
+    # 전체 행수만 보면 한 카테고리가 죽어도 나머지가 채워서 통과해버린다.
+    # 맨즈에딧이 2026-09-16 이후 13일간 0건으로 조용히 끊겼던 사례.
+    Check(
+        stage='rank', label='카테고리별 수집 끊김',
+        sql="""SELECT COALESCE(MAX(CURRENT_DATE - last_seen), 0) FROM (
+                 SELECT category_name, MAX(rank_date) AS last_seen
+                 FROM market_rankings GROUP BY category_name
+               ) t""",
+        threshold=2, mode='max', unit='일 경과',
+        hint='특정 카테고리만 0건 수집되고 있다 — rank_collector 로그에서 해당 카테고리 확인',
+    ),
 
     # ── 프로모션 (올영픽이 끊겼던 지점) ──
     Check(
