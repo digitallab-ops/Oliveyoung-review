@@ -7,14 +7,18 @@
 올리브영 · 쿠팡 · 네이버 세 플랫폼의 데이터를 자동 수집하고,<br/>
 AI가 매일 아침 즉시 활용 가능한 전략 인사이트를 생성합니다.
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-oliveyoung--review.vercel.app-22c55e?style=for-the-badge&logo=vercel)](https://oliveyoung-review.vercel.app)
+[![Screenshots](https://img.shields.io/badge/📷_화면_보기-Screenshots-22c55e?style=for-the-badge)](#screenshots)
+
+<sub>실제 서비스는 사내 계정(`@cms-lab.co.kr`) 인증이 필요합니다 —<br/>
+브랜드 전략·경쟁사 분석 데이터가 포함되어 외부 공개하지 않습니다.</sub>
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Vercel-Deployed-000000?style=flat-square&logo=vercel)
-![Claude](https://img.shields.io/badge/Claude_Sonnet_4.6-Anthropic-D97706?style=flat-square)
+![Claude](https://img.shields.io/badge/Claude_Haiku_4.5-Anthropic-D97706?style=flat-square)
+![OpenAI](https://img.shields.io/badge/GPT--5.4_mini-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)
 
 </div>
 
@@ -35,22 +39,28 @@ Windows Server (Task Scheduler)
   ├── 올리브영 리뷰 수집    06:00 / 16:00   (BeautifulSoup + curl_cffi)
   ├── 올리브영 순위 수집    매시 정각        (변화 감지 시만 저장)
   ├── 올리브영 프로모 수집  08:00           (올영픽 월 교체 감지 포함)
+  ├── 상세·가격·전성분 수집  02:00           (자사 우선, rate limit 대응)
   ├── 쿠팡 리뷰·순위 수집   06:00 / 18:00
   └── 네이버 트렌드·검색 수집 06:00
           │
-          ▼  psycopg2 + Swit Webhook 알림
+          ├── 각 단계 직후 ▸ Sentinel (파수꾼)
+          │     결과 데이터 17개 항목 검증 → 이상 시 Slack
+          │     "exit 0이어도 0건이면 파이프라인은 죽은 것"
+          │
+          ▼  psycopg2 + Slack Webhook 알림
   Supabase PostgreSQL (서울 리전)
-    ├── oliveyoung 스키마   (리뷰, 순위, 프로모, 상품)
+    ├── oliveyoung 스키마   (리뷰, 순위, 프로모, 상품, 가격이력, 전성분)
     ├── coupang 스키마      (리뷰, 순위, 상품)
     └── naver 스키마        (트렌드, 검색순위, 시장)
           │
           ▼  ISR + On-demand Revalidation
   Next.js 15 App Router (Vercel)
     ├── Google OAuth (NextAuth v5)  @cms-lab.co.kr 도메인 제한
-    ├── 올리브영 대시보드   리뷰·순위·프로모·AI 인사이트
+    ├── 올리브영 대시보드   의사결정 기준 5탭 (오늘·기획·경쟁사·프로모·리뷰)
     ├── 쿠팡 Beta           KPI·리뷰·검색순위·AI 인사이트
     ├── 네이버 Beta         검색 트렌드·노출 순위·경쟁사 시장
-    └── Claude Sonnet 4.6  대시보드 AI 분석 + 인터랙티브 챗봇
+    ├── GA4                 탭·플랫폼 전환 이벤트 추적
+    └── AI                  대시보드 분석 + 인터랙티브 챗봇
           │
           ▼  MCP (Model Context Protocol)
   Claude Desktop / 외부 AI 클라이언트
@@ -61,6 +71,22 @@ Windows Server (Task Scheduler)
 ---
 
 ## Key Features
+
+### 의사결정 기준 탭 구조
+
+탭을 데이터 출처(시장랭킹·올영픽·오특·이력)가 아니라 **"무엇을 결정하려는가"** 로 나눴습니다. 하나의 판단을 위해 여러 탭을 오가야 하던 문제를 해소하고, 마케팅팀 외 타 부서도 어느 탭을 열어야 할지 바로 알 수 있게 했습니다.
+
+| 탭 | 답하는 질문 | 핵심 구성 |
+|---|---|---|
+| **오늘** | 뭐가 달라졌나 | AI 브리핑 · 부정리뷰 경고 · 프로모 현황 · 시간별 순위 |
+| **제품 기획** | 다음에 뭘 낼까 | 용량당 단가 비교 · 신제품 반응 · 시장 랭킹 |
+| **경쟁사** | 누가 치고 오나 | 가격 변동 · 경쟁사 AI 분석 · 브랜드 이벤트 타임라인 |
+| **프로모션** | 올영픽·오특에 뭘 넣을까 | 월별 큐레이션 분석 · 특가 이력 |
+| **리뷰·CS** | 뭐가 불만인가 | 리뷰 추이 · 키워드 · 부정 이슈 · 상품별 요약 |
+
+### 용량당 단가 비교
+
+같은 카테고리라도 800ml 수딩젤과 35ml 앰플을 원/ml로 비교하면 대용량이 무조건 이겨 의미가 없습니다. 자사 제품마다 **같은 카테고리·같은 단위이면서 용량이 0.5~2배 범위인 경쟁사만** 비교군으로 삼아 실질 가격 경쟁력을 계산합니다. 경쟁사보다 비싼데 순위권 밖인 제품은 상단에 경고로 띄워 가격 저항을 먼저 의심하게 합니다.
 
 ### 오늘 현황 (올리브영)
 매일 아침 AI가 랭킹·리뷰·프로모션 데이터를 종합해 "오늘 마케터가 10초 안에 파악해야 할 것"을 자동 요약합니다. 부정 리뷰가 전주 대비 50% 이상 급증한 상품은 즉시 경고로 감지되고, 시간대별 순위 타임라인으로 하루 동안의 흐름을 한눈에 확인할 수 있습니다.
@@ -113,6 +139,51 @@ NextAuth v5 기반 Google OAuth 2.0 인증을 적용했습니다. `@cms-lab.co.k
 
 ## Technical Challenges
 
+### 조용히 죽는 파이프라인 — 결과를 검증하는 파수꾼(Sentinel)
+
+올영픽 수집이 **두 달간 멈춰 있었는데 아무도 몰랐습니다.** 올리브영이 `dispCatNo` 형식에 영문 접미사를 붙이면서 정규식 `\d+`가 값을 잘라먹었고, 수집기는 0건을 받고도 **정상 종료(exit 0)** 했기 때문입니다. 기존 알림은 종료 코드만 봤기에 실패로 잡히지 않았습니다.
+
+종료 코드가 아니라 **결과 데이터를 검증**하는 파수꾼을 만들어 각 수집 단계 뒤에 붙였습니다.
+
+```
+✅ 올영픽 오늘 수집: 251개        (기준 50개 미만이면 실패)
+✅ 올영픽 이탈 감지 신선도: 0일    (기준 10일 초과면 실패)
+✅ 카테고리별 수집 끊김: 0일       (한 카테고리만 죽어도 감지)
+✅ 자사 전성분 누락: 11개
+```
+
+- `count`(최소 건수)와 `freshness`(최신성) 2종 점검, 총 **17개 항목**
+- `Invoke-Collector`에 `-sentinelStage` 훅을 넣어 스크립트 수정 없이 각 단계에 배치
+- 임계값은 정상치의 절반 수준으로 잡아 자연 변동에 의한 거짓 경보를 피함
+
+도입 직후 **맨즈에딧 카테고리가 13일째 0건**이라는 사실을 잡아냈습니다. 전체 행수(7,100행)만 보던 첫 버전은 다른 카테고리가 채워줘서 통과했고, 그래서 카테고리별 점검을 추가했습니다. 원인은 올리브영이 필터 코드를 `10000010007` → `10000060002`로 바꾸고 속성명도 `fltDispCatNo` → `data-ref-dispCatNo`로 변경한 것이었습니다.
+
+### 하드코딩된 목록은 반드시 낡는다 — 자기 감시하는 분류 체계
+
+상품명을 효능·제형·프로모션 3축으로 분류하는 데 키워드 매칭을 씁니다. 문제는 **새 트렌드 용어가 나오면 조용히 미분류로 빠진다**는 점입니다. 실제로 `PDRN`이 78회 등장하는데 목록에 없었습니다.
+
+해법을 AI 분류로 잡지 않았습니다. 그러면 왜 그렇게 분류됐는지 따질 수 없기 때문입니다. 대신 **키워드는 투명하게 두되, 목록이 낡는 것을 감지**하게 했습니다.
+
+- `discover()` — 어느 축에도 안 걸리는 빈출어를 발굴. 상품명 `[대괄호]` 안은 브랜드가 직접 붙인 포지셔닝이라 신호 가치가 높음
+- 브랜드명은 상품명 첫 토큰에서 자동 수집해 제외 (목록 관리 불필요)
+- 파수꾼이 **커버리지 하락**과 **미등록 빈출어 누적**을 감시
+
+도구가 곧바로 `피디알엔`(33회)을 잡아냈습니다. 영문 `PDRN`만 등록했는데 한글 표기가 따로 돌고 있었고, 사람이 알아채기 어려운 종류의 누락이었습니다.
+
+만들면서 **직접 낸 버그**도 이 방식으로 드러났습니다. `파우더` 키워드에 `'포'`를 넣었더니 "**포**스트 알파", "아쿠아**포**린"이 걸려 자사 파우더가 17개로 집계됐습니다. 1글자 키워드는 토큰 완전일치를 요구하도록 구조적으로 막되, 한국어 복합어(`기획세트`)를 위해 2글자부터는 부분매칭을 허용했습니다.
+
+### 자사 데이터가 비어 있던 이유
+
+경쟁사는 가격 1,936개·전성분 1,515개를 갖고 있는데 **자사는 용량·전성분이 0개**였습니다. 가격·용량·성분 비교가 구조적으로 불가능한 상태였습니다.
+
+원인은 수집기 3종이 모두 `WHERE is_competitor = true`로 **자사 46개를 대상에서 제외**하고 있던 것이었습니다. "경쟁사 상세 수집기"로 출발한 코드가 그대로 굳은 경우였습니다.
+
+- 필터를 제거하고 `ORDER BY is_competitor`로 **자사를 먼저** 처리 (46개뿐이고 비교의 기준값)
+- 용량·기획구성은 상품명 정규식이라 웹 요청 없이 백필 — 자사 43개, 경쟁사 1,207개 즉시 확보
+- 결과: 자사 46개 중 **35개가 가격·용량 모두 보유**해 단가 비교가 가능해짐
+
+데이터가 채워지자 패턴이 드러났습니다. 선케어 35~40ml 라인이 경쟁사 대비 **+19~52% 비쌌고**, 스틱 타입(19~20g)은 **-14~18% 저렴한데 전부 순위권 밖**이었습니다. 후자는 가격 문제가 아니라 노출 문제라는 뜻입니다.
+
 ### 안정적인 데이터 수집 환경 구성
 일반적인 HTTP 클라이언트로는 상용 이커머스 플랫폼의 자동 수집 방지 정책에 의해 정상적인 응답을 받기 어렵습니다. `curl_cffi`를 활용해 실제 브라우저와 동일한 TLS fingerprint 및 헤더 구조를 재현하고, 요청 간격을 랜덤화해 안정적인 수집 환경을 구축했습니다.
 
@@ -140,6 +211,28 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 
 ---
 
+## Screenshots
+
+> 실제 서비스는 사내 계정 인증이 필요해 외부 접속이 불가능합니다. 주요 화면을 아래에 정리했습니다.
+> 수치 일부는 브랜드 전략 정보에 해당해 가려져 있습니다.
+
+| 오늘 현황 | 제품 기획 |
+|---|---|
+| ![오늘 현황](docs/screenshots/01-today.png) | ![제품 기획](docs/screenshots/02-planning.png) |
+| AI 일일 브리핑 · 부정리뷰 경고 · 시간별 순위 타임라인 | 용량당 단가 비교 · 신제품 반응 · 시장 랭킹 |
+
+| 경쟁사 분석 | AI 챗봇 |
+|---|---|
+| ![경쟁사](docs/screenshots/03-competitor.png) | ![챗봇](docs/screenshots/04-chatbot.png) |
+| 가격 변동 · 경쟁사 키워드 비교 · 브랜드 이벤트 | 크로스 플랫폼 질의 · 스트리밍 응답 |
+
+| 파수꾼 경보 | 올영픽 분석 |
+|---|---|
+| ![파수꾼](docs/screenshots/05-sentinel.png) | ![올영픽](docs/screenshots/06-olivepick.png) |
+| 수집 이상 감지 Slack 알림 | 월별 기획 컨셉 · 자사 대응 액션 |
+
+---
+
 ## Stack
 
 | 분류 | 기술 |
@@ -152,8 +245,11 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 | 차트 | Recharts |
 | 배포 | Vercel (ISR + On-demand Revalidation) |
 | 스케줄러 | Windows Task Scheduler + PowerShell |
-| 알림 | Swit Incoming Webhook |
-| AI | Claude Sonnet 4.6 (대시보드 분석 + 챗봇 + MCP) |
+| 알림 | Slack Incoming Webhook (수집 결과 + 파수꾼 경보) |
+| 분석 | Google Analytics 4 (탭·플랫폼 전환 이벤트) |
+| AI — 웹 | OpenAI `gpt-5.4-mini` (대시보드 인사이트 + 챗봇) |
+| AI — 브리핑 | OpenAI `gpt-4o` (일 1회, 품질 우선) |
+| AI — 요약 | Anthropic `claude-haiku-4.5` (쿠팡·네이버 리뷰 요약) |
 
 ---
 
@@ -161,10 +257,16 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 
 ```
 ├── collector/
+│   ├── sentinel.py            # ★ 파수꾼 — 결과 데이터 17개 항목 검증 + Slack 경보
+│   ├── taxonomy.py            # ★ 효능·제형·프로모션 3축 분류 + 목록 노후화 발굴
 │   ├── pipeline.py            # 올리브영 리뷰 수집 및 전처리
 │   ├── rank_collector.py      # 카테고리 순위 수집 (중복 감지 포함)
 │   ├── promo_collector.py     # 올영픽 · 오늘의 특가 수집 (월 교체 감지)
-│   ├── summarizer.py          # 상품별 AI 요약 생성 (Claude API)
+│   ├── event_detector.py      # 올영픽 입점·이탈, 순위 급등 자동 감지
+│   ├── price_collector.py     # 가격 수집 (자사 우선, rate limit 대응)
+│   ├── ingredient_collector.py# 전성분 수집 (curl_cffi)
+│   ├── product_detail_collector.py # 용량 · 기획구성 (상품명 정규식)
+│   ├── summarizer.py          # 상품별 AI 요약 생성
 │   ├── coupang_pipeline.py    # 쿠팡 리뷰 수집
 │   ├── coupang_rank.py        # 쿠팡 검색순위 · 카테고리 순위 수집
 │   └── naver_collector.py     # 네이버 트렌드 · 검색 노출 · 시장 데이터 수집
@@ -188,6 +290,9 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 │   │       ├── reviews/trends/# 주간 리뷰 추이 API
 │   │       └── revalidate/    # ISR 초기화 + AI 캐시 워밍업
 │   ├── components/
+│   │   ├── DashboardTabs.tsx      # 의사결정 기준 5탭 구조
+│   │   ├── UnitPriceSection.tsx   # ★ 용량당 단가 비교 (용량대 매칭)
+│   │   ├── PriceChangeSection.tsx # ★ 최근 가격 변동 (14일 · 5% 이상)
 │   │   ├── RankingSection.tsx     # 자사 순위 차트 (21색 팔레트 · 평균순위 기본선택)
 │   │   ├── TimeSeriesChart.tsx    # 리뷰 추이 (월간/주간 전환 · 기간 선택)
 │   │   ├── CoupangDashboard.tsx   # 쿠팡 Beta 대시보드
@@ -195,7 +300,8 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 │   │   └── ChatWidget.tsx         # 멀티플랫폼 AI 챗봇 위젯
 │   └── lib/
 │       ├── db.ts              # DB 쿼리 함수 모음 (전 플랫폼)
-│       ├── ai.ts              # Claude AI 호출 + KST 캐싱
+│       ├── ai.ts              # AI 호출 + KST 캐싱 + 월별 동적 시즌 컨텍스트
+│       ├── analytics.ts       # GA4 이벤트 (탭·플랫폼 전환)
 │       └── types.ts           # 공유 타입 정의
 └── db/
     ├── schema.py              # 올리브영 테이블 스키마
@@ -206,6 +312,31 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 ---
 
 ## Update History
+
+### 2026-09 (v1.4) — 파이프라인 신뢰성 · 가격 분석
+
+**파이프라인이 조용히 죽는 문제 해결**
+- **파수꾼(Sentinel) 도입**: 종료 코드가 아닌 결과 데이터를 검증하는 17개 항목 점검기. `Invoke-Collector`에 훅을 넣어 각 수집 단계 뒤에 배치, 이상 시 Slack 경보
+- **올영픽 2개월 누락 복구**: `dispCatNo` 정규식 `\d+` → `[A-Za-z0-9]+` (형식에 영문 접미사 추가됨)
+- **올영픽 이탈 감지 부활**: 비교 기준을 달력상 직전 달 → *데이터가 있는* 가장 최근 달로 변경. 8월 공백 때문에 빈 집합과 비교해 이탈이 영원히 0건이던 문제. 월 내 중복 발행도 억제 (같은 입점을 29번 재발행하던 것)
+- **맨즈에딧 13일 누락 복구**: 필터 코드 `10000010007` → `10000060002` 변경 대응
+- **Vercel revalidate 401 수정**: 미들웨어가 인증 없는 모든 `/api/`를 차단하던 것을 우회 + 시크릿·세션 이중 허용
+
+**자사 데이터 공백 해소**
+- 수집기 3종(`ingredient`·`price`·`product_detail`)이 `is_competitor = true`로 자사를 제외하던 문제 수정, 자사 우선 정렬로 변경
+- 자사 용량 0 → 43개, 전성분 0 → 35개, 가격 26 → 38개
+
+**분석 기능**
+- **용량당 단가 비교**: 같은 카테고리·단위·용량 0.5~2배 범위 경쟁사와 비교. "비싼데 순위권 밖" 제품 경고
+- **가격 변동 알림**: 84일치 가격 이력을 활용해 14일 내 5% 이상 변동 감지
+- **3축 분류 체계**(`taxonomy.py`): 효능·제형·프로모션. 미등록 빈출어 자동 발굴로 목록 노후화 감지
+
+**UX · 운영**
+- **탭 재편 7 → 5**: 데이터 출처 기준 → 의사결정 기준(오늘·제품기획·경쟁사·프로모션·리뷰CS)
+- **GA4 도입**: 탭·플랫폼 전환 이벤트 추적 (SPA라 page_view로 안 잡히던 것)
+- **AI 시즌 컨텍스트 동적화**: "지금은 초여름" 하드코딩 → 월별 계산 (9월에 여름 기준으로 분석하던 문제)
+- **브리핑 프롬프트 개선**: 섹션 번호·마크다운 기호 금지 강화, 해설 문장 배제
+- **MCP `get_ingredients` 추가**: Vercel 데이터센터 IP가 차단되어 실시간 스크래핑이 불가능 → 로컬 수집 후 DB 캐시를 읽는 방식으로 전환
 
 ### 2026-07 (v1.3)
 - **순위 차트 개선**: COLORS 팔레트 7→21개로 확장, 색상 고정 (선택 변경 시 색 밀림 없음), 기본 선택 평균 순위 기준 상위 5개로 변경
@@ -227,5 +358,5 @@ Claude API 호출은 응답 생성에 수 초가 걸립니다. 분석 결과를 
 ---
 
 <div align="center">
-  <sub>Python · Next.js · Supabase · Vercel · Claude Sonnet 4.6 · MCP</sub>
+  <sub>Python · Next.js · Supabase · Vercel · OpenAI · Claude · MCP</sub>
 </div>
