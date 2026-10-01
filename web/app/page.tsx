@@ -64,18 +64,24 @@ export default async function Page() {
 
   const productTopics = await safe(getProductTopicInsights, [])
 
-  const marketInsight = await withTimeout(
-    marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''),
-    25000, ''
-  )
-  const reviewInsight = await withTimeout(
-    generateReviewInsight(insights, negativeData),
-    25000, ''
-  )
-  const dailyBrief = await withTimeout(
-    marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''),
-    25000, ''
-  )
+  // AI 생성은 반드시 병렬로. 순차로 두면 타임아웃이 더해져(25×3=75초)
+  // Vercel의 정적 페이지 생성 제한 60초를 넘긴다.
+  // 결과는 KST 날짜 기준으로 DB에 캐시되므로, 날짜가 바뀐 뒤 첫 배포에서만
+  // 세 호출이 실제로 일어난다 — 그 한 번이 빌드를 깨뜨렸다.
+  const [marketInsight, reviewInsight, dailyBrief] = await Promise.all([
+    withTimeout(
+      marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''),
+      20000, ''
+    ),
+    withTimeout(
+      generateReviewInsight(insights, negativeData),
+      20000, ''
+    ),
+    withTimeout(
+      marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''),
+      20000, ''
+    ),
+  ])
 
   return (
     <div className="min-h-screen bg-background">
