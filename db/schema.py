@@ -162,6 +162,12 @@ def init_db(conn=None):
                 CREATE INDEX IF NOT EXISTS idx_market_rankings_goods
                     ON market_rankings(goods_no, category_name)
             """)
+            # 카테고리별 최신 스냅샷 조회용. 이 인덱스가 없으면 대시보드의
+            # getMarketRankings가 240만 행을 Seq Scan + 디스크 정렬한다(7초).
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_market_rankings_cat_recent
+                    ON market_rankings(category_name, rank_date DESC, rank_hour DESC)
+            """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS market_insights (
                     id           SERIAL PRIMARY KEY,

@@ -1,9 +1,12 @@
 import { Pool } from 'pg'
 import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry } from './types'
 
+// 홈 페이지가 한 번에 19개 쿼리를 던진다. max:2면 전부 큐에 걸려
+// 벽시계 시간이 DB 작업 총량의 절반까지 늘어난다(실측 64초 → 빌드 60초 제한 초과).
+// Supabase 풀러를 거치므로 10은 안전한 수준이다.
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 2,
+  max: 10,
   idleTimeoutMillis: 10000,
   options: '-c search_path=oliveyoung',
 })
@@ -540,6 +543,7 @@ export async function getProductRankingsByMode(): Promise<{
       SELECT DISTINCT ON (category_name)
              category_name, rank_date::text AS last_date, rank_hour
       FROM market_rankings
+      WHERE rank_date >= CURRENT_DATE - 30   -- 없으면 240만 행 전체 스캔
       ORDER BY category_name, rank_date DESC, rank_hour DESC
     `)
 
@@ -618,10 +622,14 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
       delta: string | null
       is_ours: boolean
     }>(`
+      -- 최근 30일로 범위를 제한한다. PostgreSQL은 DISTINCT ON에 skip scan을 하지 못해
+      -- 제한이 없으면 240만 행 전체를 훑는다(실측 7.2초 → 0.12초).
+      -- 수집은 매시간 돌고 파수꾼이 1~2일 내 중단을 잡으므로 30일이면 충분하다.
       WITH latest_per_cat AS (
         SELECT DISTINCT ON (category_name)
           category_name, rank_date, rank_hour
         FROM market_rankings
+        WHERE rank_date >= CURRENT_DATE - 30
         ORDER BY category_name, rank_date DESC, rank_hour DESC
       ),
       prev_per_cat AS (
@@ -629,7 +637,8 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
           mr.category_name, mr.rank_date, mr.rank_hour
         FROM market_rankings mr
         JOIN latest_per_cat lpc ON mr.category_name = lpc.category_name
-        WHERE (mr.rank_date, mr.rank_hour) < (lpc.rank_date, lpc.rank_hour)
+        WHERE mr.rank_date >= CURRENT_DATE - 30
+          AND (mr.rank_date, mr.rank_hour) < (lpc.rank_date, lpc.rank_hour)
         ORDER BY mr.category_name, mr.rank_date DESC, mr.rank_hour DESC
       ),
       today_snap AS (
@@ -1363,6 +1372,7 @@ export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
       WHERE p.is_competitor = false
         AND p.price IS NOT NULL AND p.volume IS NOT NULL
         AND mr.category_name <> '전체'
+        AND mr.rank_date >= CURRENT_DATE - 90   -- 없으면 전체 이력을 훑는다
       ORDER BY p.goods_no, mr.rank_date DESC, mr.rank_position
     `)
 
