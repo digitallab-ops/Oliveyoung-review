@@ -103,9 +103,17 @@ function Invoke-Collector([string]$module, [string]$label, [int]$timeoutMin = 20
 
     if ($code -ne 0) {
         "[$end] FAILED (exit=$code)" | Out-File -Append -Encoding UTF8 $logFile
-        $errLine = (Get-Content $logFile -Encoding UTF8) |
-            Where-Object { $_ -match 'Error:|Exception:|FAILED' -and $_ -notmatch '^\s+File ' } |
-            Select-Object -Last 1
+        $logLines = Get-Content $logFile -Encoding UTF8
+        # 파수꾼은 '어느 점검이' 깨졌는지가 전부다. 실패 항목을 그대로 보낸다.
+        # 이게 없으면 슬랙에는 'FAILED (exit=1)'만 가고 로그를 열어야 알 수 있다.
+        $failed = $logLines | Where-Object { $_ -match '^\s*❌' } | Select-Object -First 5
+        if ($failed) {
+            $errLine = ($failed | ForEach-Object { $_.Trim() }) -join "`n"
+        } else {
+            $errLine = $logLines |
+                Where-Object { $_ -match 'Error:|Exception:|FAILED' -and $_ -notmatch '^\s+File ' } |
+                Select-Object -Last 1
+        }
         Send-Slack "❌❌❌ [OY] $label 실패❌❌❌`n$end`n$errLine"
     } else {
         "[$end] OK" | Out-File -Append -Encoding UTF8 $logFile

@@ -36,6 +36,12 @@ IMG_ROOT = REPO / "exports" / "detail_pages"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
 
+# 대체 경로의 채택 기준. 장수로만 재면 틀린다 — 에스트라·라로슈포제는 상세페이지
+# 전체가 이미지 '한 장'(720x30742px)이라 3장짜리가 되고, 장수 기준에 걸려 버려졌다.
+# 그래서 장수 OR 총 높이 중 하나만 넘으면 받는다.
+FALLBACK_MIN = 5          # 장수
+FALLBACK_MIN_H = 3000     # 또는 합산 세로 픽셀
+
 # 구분선·여백용 띠 이미지는 분석 가치가 없다. 세로가 이보다 작으면 버린다.
 MIN_HEIGHT = 120
 
@@ -119,8 +125,12 @@ def pick_ours(conn, category: str, limit: int = 20) -> list[dict]:
     return sorted(rows, key=lambda r: r["rank_position"])
 
 
-def pick_targets(conn, category: str, top: int) -> list[dict]:
-    """해당 카테고리 최신 스냅샷 상위 N개. 시간대 중복을 제거한다."""
+def pick_targets(conn, category: str, top: int, skip_done: bool = True) -> list[dict]:
+    """해당 카테고리 최신 스냅샷 상위 N개. 시간대 중복을 제거한다.
+
+    이미 받아둔 상품은 건너뛴다. 수집은 Selenium이라 가장 비싼 단계고,
+    확대할 때 같은 걸 다시 긁으면 그게 전부 낭비다.
+    """
     with conn.cursor() as cur:
         cur.execute("""
             WITH latest AS (
@@ -133,13 +143,20 @@ def pick_targets(conn, category: str, top: int) -> list[dict]:
                   AND mr.category_name = %s
                 ORDER BY mr.goods_no, mr.rank_hour DESC, mr.rank_position
             )
-            SELECT s.goods_no, s.rank_position, COALESCE(p.goods_name, s.goods_name) AS goods_name,
-                   COALESCE(p.is_competitor, true) AS is_competitor
-            FROM snap s
-            LEFT JOIN products p ON p.goods_no = s.goods_no
-            ORDER BY s.rank_position
-            LIMIT %s
-        """, (category, top))
+            SELECT t.goods_no, t.rank_position, t.goods_name, t.is_competitor
+            FROM (
+                SELECT s.goods_no, s.rank_position,
+                       COALESCE(p.goods_name, s.goods_name) AS goods_name,
+                       COALESCE(p.is_competitor, true) AS is_competitor
+                FROM snap s
+                LEFT JOIN products p ON p.goods_no = s.goods_no
+                ORDER BY s.rank_position
+                LIMIT %s
+            ) t
+            WHERE %s = false
+               OR NOT EXISTS (SELECT 1 FROM detail_pages dp WHERE dp.goods_no = t.goods_no)
+            ORDER BY t.rank_position
+        """, (category, top, skip_done))
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -157,29 +174,111 @@ def _driver():
 
 
 def fetch_image_urls(d, goods_no: str) -> list[str]:
-    """상세 컨테이너에서 이미지 주소를 순서대로 뽑는다."""
+    """상세 컨테이너에서 이미지 주소를 순서대로 뽑는다.
+
+    2026-10 올리브영이 상품 페이지를 React 로 바꿨다. 대부분은 새 페이지 안에
+    예전 #tempHtml2 가 그대로 남아 있어 계속 동작했지만, 두 가지가 깨졌다.
+      1) 상품설명 탭이 <a> 가 아니라 button/li 가 되어 클릭이 100% 실패하고 있었다
+         (#tempHtml2 가 DOM 에 이미 있어서 티가 안 났다)
+      2) #tempHtml2 가 아예 없는 상품이 12.7% 생겼다 — 그쪽은 0장으로 끝났다
+    그래서 탭 셀렉터를 넓히고, 없을 때 React 본문에서 긴 이미지를 줍는 길을 둔다.
+    """
     d.get(f"https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo={goods_no}")
     time.sleep(3.5)
 
-    # 상세 내용은 탭을 눌러야 DOM에 들어온다
-    for xp in ['//a[contains(.,"상품설명")]', '//a[contains(@href,"goods_detail")]']:
+    # 탭은 a / button / li 어느 것이든 될 수 있다
+    for xp in ('//*[self::a or self::button or self::li][contains(.,"상품설명")]',
+               '//*[self::a or self::button or self::li][contains(.,"상세정보")]',
+               '//a[contains(@href,"goods_detail")]'):
         els = d.find_elements("xpath", xp)
         if els:
-            d.execute_script("arguments[0].click();", els[0])
-            time.sleep(2.5)
+            try:
+                d.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", els[0])
+                time.sleep(2.5)
+            except Exception:
+                pass
             break
 
-    for _ in range(6):
-        d.execute_script("window.scrollBy(0, 2400);")
-        time.sleep(0.5)
+    # 신형 페이지는 상세 내용을 '상품설명 더보기' 뒤에 접어 둔다.
+    # 누르면 문서가 3천px → 2만5천px 로 늘어난다. 안 누르면 그냥 0장이다.
+    for xp in ('//button[contains(normalize-space(.),"상품설명 더보기")]',
+               '//a[contains(normalize-space(.),"상품설명 더보기")]'):
+        els = d.find_elements("xpath", xp)
+        if els:
+            try:
+                d.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});", els[-1])
+                time.sleep(0.4)
+                d.execute_script("arguments[0].click();", els[-1])
+                time.sleep(2.5)
+            except Exception:
+                pass
+            break
 
-    return d.execute_script("""
+    # 바닥까지 내려간다. 고정 횟수로는 펼쳐진 2만px 를 못 덮는다.
+    last_h, stable = 0, 0
+    for _ in range(40):
+        d.execute_script("window.scrollBy(0, 2400);")
+        time.sleep(0.45)
+        h = d.execute_script(
+            "return window.scrollY + window.innerHeight >= document.body.scrollHeight - 50"
+            " ? -1 : document.body.scrollHeight;")
+        if h == -1:
+            stable += 1
+            if stable >= 2:
+                break
+        elif h == last_h:
+            stable += 1
+            if stable >= 3:
+                break
+        else:
+            stable = 0
+        last_h = h
+    time.sleep(1.0)   # 마지막 lazy 이미지가 뜰 틈
+
+    urls = d.execute_script("""
         const r = document.querySelector('#tempHtml2');
         if (!r) return [];
         return Array.from(r.querySelectorAll('img'))
           .map(e => e.getAttribute('data-src') || e.currentSrc || e.src || '')
           .filter(s => s.startsWith('http'));
     """) or []
+    if urls:
+        return urls
+
+    # 대체 경로 — 신형 본문에서 '세로로 긴 띠'만 줍는다.
+    # 몇 장만 걸리면 상세 내용이 아니라 배너·갤러리를 주운 것이다.
+    # 실측: 정상 상세페이지의 최소 장수는 6장, 5장 미만은 하나도 없었다.
+    # 추천 캐러셀(curation/swiper)과 정사각 갤러리는 상세 내용이 아니다.
+    alt = d.execute_script("""
+        const root = document.querySelector('[class*=product-info-panel]')
+                  || document.querySelector('#tab-panels')
+                  || document.querySelector('[class*=product-details-container]');
+        if (!root) return [];
+        const bad = /curation|swiper|carousel|thumb|recommend|review/i;
+        const out = [];
+        root.querySelectorAll('img').forEach(e => {
+          if (e.closest('[class*=curation],[class*=swiper],[class*=carousel]')) return;
+          if (bad.test(String(e.className || ''))) return;
+          const u = e.getAttribute('data-src') || e.currentSrc || e.src || '';
+          if (!u.startsWith('http')) return;
+          // 올리브영이 호스팅하는 작은 썸네일은 추천 영역이다
+          if (/thumbnail/i.test(u)) return;
+          const w = e.naturalWidth || e.width || 0;
+          const h = e.naturalHeight || e.height || 0;
+          // 상세 띠는 가로가 넓고 세로가 그보다 길거나 비슷하게 길다.
+          // 아직 로드되지 않아 크기가 0인 것은 data-src 가 있으면 살린다.
+          const unloaded = (w === 0 && h === 0 && e.hasAttribute('data-src'));
+          if (!unloaded && !(w >= 500 && h >= 200 && h >= w * 0.4)) return;
+          out.push({u: u, h: h});
+        });
+        return out;
+    """) or []
+    total_h = sum(int(x.get("h") or 0) for x in alt)
+    if len(alt) >= FALLBACK_MIN or total_h >= FALLBACK_MIN_H:
+        return [x["u"] for x in alt]
+    return []
 
 
 def download(goods_no: str, urls: list[str]) -> list[dict]:

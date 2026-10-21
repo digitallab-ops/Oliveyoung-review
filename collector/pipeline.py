@@ -3,6 +3,7 @@ import sys
 import json
 import requests
 import urllib.request
+import urllib.error
 import time
 import random
 from datetime import datetime
@@ -89,8 +90,14 @@ def revalidate_vercel():
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
-        urllib.request.urlopen(req, timeout=10)
+        # 라우트가 캐시 비우기 뒤에 AI 3개를 돌린다(maxDuration 60초).
+        # 10초로 두면 실제로는 성공했는데 매번 timeout으로 찍혀서
+        # 진짜 장애와 구분이 안 된다. 실측 13초, 서버 상한에 맞춰 70초로 둔다.
+        urllib.request.urlopen(req, timeout=70)
         print('  Vercel 캐시 초기화 완료')
+    except urllib.error.HTTPError as e:
+        hint = ' (REVALIDATE_SECRET 불일치 — 버셀 환경변수 확인)' if e.code == 401 else ''
+        print(f'  Vercel 캐시 초기화 실패: HTTP {e.code}{hint}')
     except Exception as e:
         print(f'  Vercel 캐시 초기화 실패: {e}')
 

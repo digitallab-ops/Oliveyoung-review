@@ -89,19 +89,51 @@ CHECKS: list[Check] = [
     ),
 
     # ── 이벤트 감지 ──
+    # 올영픽은 월 단위 큐레이션이라 입점/이탈은 월이 바뀔 때 한 번만 나온다.
+    # '며칠 지났나'로 보면 매달 중순부터 말일까지 거짓 경보가 켜진 채로 있게 되고,
+    # 늘 켜진 경보는 아무도 보지 않는다 — 올영픽이 두 달 죽어 있던 이유가 그거였다.
+    # 그래서 '이번 달 치가 나왔나'를 보고, 안 나왔으면 며칠 연체인지를 센다.
     Check(
-        stage='event', label='올영픽 이탈 감지 신선도',
-        sql="""SELECT COALESCE(CURRENT_DATE - MAX(event_date), 999) FROM brand_events
-               WHERE event_type = 'olivepick_exit'""",
-        threshold=10, mode='max', unit='일 경과',
-        hint='event_detector — 이전 스냅샷이 없으면 이탈 계산이 죽는다 (2026-08-31 사례)',
+        stage='event', label='올영픽 이탈 감지 (이번 달)',
+        sql="""SELECT CASE
+                 -- 비교 기준이 될 이전 달 수집분이 없으면 애초에 낼 수 없다
+                 WHEN NOT EXISTS (
+                     SELECT 1 FROM promo_items
+                     WHERE promo_type = 'olivepick'
+                       AND TO_CHAR(collected_at, 'YYYY-MM') < TO_CHAR(CURRENT_DATE, 'YYYY-MM')
+                 ) THEN 0
+                 -- 이번 달 치가 이미 나왔으면 정상
+                 WHEN EXISTS (
+                     SELECT 1 FROM brand_events
+                     WHERE event_type = 'olivepick_exit'
+                       AND TO_CHAR(event_date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')
+                 ) THEN 0
+                 -- 월초 며칠은 아직 안 돌았을 수 있다
+                 ELSE GREATEST(EXTRACT(DAY FROM CURRENT_DATE)::int - 3, 0)
+               END""",
+        threshold=0, mode='max', unit='일 연체',
+        hint='event_detector — 월 경계에서만 나온다. 연체면 detect_olivepick_changes 확인',
     ),
     Check(
-        stage='event', label='올영픽 입점 감지 신선도',
-        sql="""SELECT COALESCE(CURRENT_DATE - MAX(event_date), 999) FROM brand_events
-               WHERE event_type = 'olivepick_entry'""",
-        threshold=10, mode='max', unit='일 경과',
-        hint='event_detector',
+        stage='event', label='올영픽 입점 감지 (이번 달)',
+        sql="""SELECT CASE
+                 -- 비교 기준이 될 이전 달 수집분이 없으면 애초에 낼 수 없다
+                 WHEN NOT EXISTS (
+                     SELECT 1 FROM promo_items
+                     WHERE promo_type = 'olivepick'
+                       AND TO_CHAR(collected_at, 'YYYY-MM') < TO_CHAR(CURRENT_DATE, 'YYYY-MM')
+                 ) THEN 0
+                 -- 이번 달 치가 이미 나왔으면 정상
+                 WHEN EXISTS (
+                     SELECT 1 FROM brand_events
+                     WHERE event_type = 'olivepick_entry'
+                       AND TO_CHAR(event_date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')
+                 ) THEN 0
+                 -- 월초 며칠은 아직 안 돌았을 수 있다
+                 ELSE GREATEST(EXTRACT(DAY FROM CURRENT_DATE)::int - 3, 0)
+               END""",
+        threshold=0, mode='max', unit='일 연체',
+        hint='event_detector — 월 경계에서만 나온다',
     ),
 
     # ── 리뷰 ──

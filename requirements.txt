@@ -7,3 +7,4 @@ undetected-chromedriver>=3.5.5
 selenium>=4.44.0
 pytrends>=4.9.2
 anthropic>=0.39.0
+Pillow>=10.0.0

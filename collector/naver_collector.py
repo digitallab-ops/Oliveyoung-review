@@ -9,8 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from anthropic import Anthropic
+from openai import OpenAI
 from db.naver_schema import get_conn, init_db
+
+# 인사이트 요약은 꾸준히 도는 게 우선이라 저가 모델을 쓴다
+MODEL = 'gpt-4o-mini'
 
 NAVER_ID     = os.environ["NAVER_CLIENT_ID"]
 NAVER_SECRET = os.environ["NAVER_CLIENT_SECRET"]
@@ -249,15 +252,17 @@ def generate_and_save_insight(conn):
 · 셀퓨전씨 팀이 내일 당장 실행할 수 있는 제안 포함
 · 각 섹션 3~4개 항목"""
 
-    print("  Claude 분석 중...")
-    anthropic = Anthropic()
-    msg = anthropic.messages.create(
-        model="claude-haiku-4-5-20251001",
+    print("  요약 생성 중...")
+    client = OpenAI()  # reads OPENAI_API_KEY from env
+    res = client.chat.completions.create(
+        model=MODEL,
         max_tokens=1000,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
     )
-    content = msg.content[0].text.strip()
+    content = (res.choices[0].message.content or '').strip()
 
     with conn.cursor() as cur:
         cur.execute("INSERT INTO insights (content) VALUES (%s)", (content,))

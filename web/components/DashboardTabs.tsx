@@ -30,6 +30,7 @@ import ActionLogWidget from '@/components/ActionLogWidget'
 import BrandTimeline from '@/components/BrandTimeline'
 import UnitPriceSection from '@/components/UnitPriceSection'
 import PriceChangeSection from '@/components/PriceChangeSection'
+import DetailPageTab from '@/components/DetailPageTab'
 
 interface Props {
   insights: Insights
@@ -73,6 +74,7 @@ const TABS = [
   { id: 'planning',   label: '제품 기획',  desc: '다음에 뭘 낼까' },
   { id: 'competitor', label: '경쟁사',    desc: '누가 치고 오나' },
   { id: 'promo',      label: '프로모션',   desc: '올영픽·오특에 뭘 넣을까' },
+  { id: 'detail',     label: '상세페이지',  desc: '어떻게 쓸까' },
   { id: 'reviews',    label: '리뷰·CS',   desc: '뭐가 불만인가' },
 ] as const
 
@@ -322,6 +324,9 @@ export default function DashboardTabs({
         )}
 
         {/* 프로모션 — 올영픽·오특에 뭘 넣을까 */}
+        {/* 상세페이지 — 어떻게 쓸까 */}
+        {active === 'detail' && <DetailPageTab />}
+
         {active === 'promo' && (
           <div className="space-y-12">
             <OlivepickTab />

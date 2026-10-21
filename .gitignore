@@ -17,3 +17,8 @@ chrome_profile*/
 venv/
 debug_profile_test.py
 amazon_login_setup.py
+
+# 수집한 상세페이지 원본 이미지 — 1.3GB 다. 추적하면 안 된다.
+# gitignore 에 없던 탓에 git status 에 통째로 떠 있었고, add -A 한 번이면
+# GitHub 가 거부할 크기가 올라간다. 집계 결과만 web/public/detail/ 로 나간다.
+exports/

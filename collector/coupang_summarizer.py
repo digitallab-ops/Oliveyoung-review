@@ -6,10 +6,13 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from anthropic import Anthropic
+from openai import OpenAI
 from db.coupang_schema import get_conn, init_db
 
-client = Anthropic()
+# 요약은 정확도보다 꾸준히 도는 게 중요해서 저가 모델을 쓴다.
+# summarizer.py 와 같은 모델로 맞춰 둔다
+client = OpenAI()  # reads OPENAI_API_KEY from env
+MODEL = 'gpt-4o-mini'
 
 SYSTEM = """당신은 K-뷰티 브랜드 전략 전문가입니다. 셀퓨전씨 제품팀의 전속 인사이트 파트너로, 쿠팡 실구매 리뷰를 분석하여 제품 개선과 마케팅에 바로 활용할 수 있는 인사이트를 도출합니다.
 
@@ -84,15 +87,15 @@ def _generate_insight(reviews):
         f"[★{r['rating']}] {(r['product_name'] + ' — ') if r['product_name'] else ''}{r['content']}"
         for r in reviews
     )
-    msg = client.messages.create(
-        model='claude-haiku-4-5-20251001',
+    res = client.chat.completions.create(
+        model=MODEL,
         max_tokens=1200,
-        system=SYSTEM,
         messages=[
+            {'role': 'system', 'content': SYSTEM},
             {'role': 'user', 'content': f"쿠팡 실구매 리뷰 {len(reviews)}개를 분석해줘:\n\n{review_text}"},
         ],
     )
-    return msg.content[0].text.strip()
+    return (res.choices[0].message.content or '').strip()
 
 
 def _save(conn, product_id, product_name, review_count, content):
