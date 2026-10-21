@@ -12,7 +12,14 @@ export async function POST(req: Request) {
   const secret = process.env.REVALIDATE_SECRET
   if (secret) {
     const body = await req.json().catch(() => ({}))
-    if (body.secret !== secret && !(await auth())) {
+    const bySecret = body.secret === secret
+    const session = bySecret ? null : await auth()
+    if (!bySecret && !session) {
+      // 401 이 났을 때 '시크릿이 틀린 건지 세션이 없는 건지' 를 구분할 수 있어야
+      // 한다. 화면의 새로고침 버튼은 시크릿 없이 세션만으로 들어온다.
+      console.error('[revalidate] 401 — secret match:', bySecret,
+        '/ session:', session ? 'ok' : 'none',
+        '/ cookie:', req.headers.get('cookie') ? 'sent' : 'MISSING')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }

@@ -14,7 +14,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn() } catch { return fallback }
+  try {
+    return await fn()
+  } catch (e) {
+    // 폴백은 돌려주되 조용히 넘어가지는 않는다. 이걸 삼키는 바람에
+    // 섹션이 비어 있을 때 '데이터가 없음' 과 '쿼리 실패' 를 구분할 수 없었다.
+    console.error(`[page:safe] ${fn.name || 'anon'}: ` +
+      (e instanceof Error ? `${e.name}: ${e.message}` : String(e)))
+    return fallback
+  }
 }
 
 function formatLastUpdated(ts: string | null): string {

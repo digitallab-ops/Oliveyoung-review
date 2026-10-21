@@ -4,6 +4,16 @@ import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, Reviews
 // 홈 페이지가 한 번에 19개 쿼리를 던진다. max:2면 전부 큐에 걸려
 // 벽시계 시간이 DB 작업 총량의 절반까지 늘어난다(실측 64초 → 빌드 60초 제한 초과).
 // Supabase 풀러를 거치므로 10은 안전한 수준이다.
+// 쿼리가 터지면 폴백을 돌려주되, 무엇이 왜 터졌는지는 반드시 남긴다.
+// 전에는 24곳이 전부 `catch { return [] }` 였다. 그래서 "데이터가 없다" 와
+// "쿼리가 실패했다" 가 화면에서 똑같이 빈 상태로 보였고, Vercel 로그에도
+// 아무것도 찍히지 않아 원인을 좁힐 수가 없었다.
+function dbErr(fn: string, e: unknown): void {
+  const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+  console.error(`[db:${fn}] ${msg}`)
+}
+
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 10,
@@ -439,7 +449,8 @@ export async function getProductSummaries(): Promise<ProductSummary[]> {
       generated_at: r.generated_at,
       ...JSON.parse(r.summary_json),
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getProductSummaries', e)
     return []
   }
 }
@@ -492,7 +503,8 @@ export async function getCompetitorSummaries(): Promise<CompetitorSummary[]> {
       bundle_info: r.bundle_info ?? null,
       ...JSON.parse(r.summary_json),
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getCompetitorSummaries', e)
     return []
   }
 }
@@ -569,7 +581,8 @@ export async function getProductRankingsByMode(): Promise<{
       weekly: toData(weeklyRows),
       lastCollected,
     }
-  } catch {
+  } catch (e) {
+    dbErr('getProductRankingsByMode', e)
     return { best: [], avg: [], weekly: [], lastCollected: {} }
   }
 }
@@ -606,7 +619,8 @@ export async function getProductRankings(): Promise<ProductRankingData[]> {
       })
     }
     return Array.from(map.values())
-  } catch {
+  } catch (e) {
+    dbErr('getProductRankings', e)
     return []
   }
 }
@@ -696,7 +710,8 @@ export async function getMarketRankings(): Promise<MarketCategoryData[]> {
       })
     }
     return Array.from(map.entries()).map(([category_name, entries]) => ({ category_name, entries }))
-  } catch {
+  } catch (e) {
+    dbErr('getMarketRankings', e)
     return []
   }
 }
@@ -729,7 +744,8 @@ export async function getInsightsHistory(limit = 60): Promise<InsightsSnapshot[]
       negative_keywords: typeof r.negative_keywords === 'string'
         ? JSON.parse(r.negative_keywords) : (r.negative_keywords as { word: string; cnt: number }[]),
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getInsightsHistory', e)
     return []
   }
 }
@@ -804,7 +820,8 @@ export async function getNewProducts(withinDays = 30): Promise<NewProductData[]>
         top_keywords: kwMap.get(p.goods_no) ?? [],
       }
     }).filter(p => p.total_reviews > 0)
-  } catch {
+  } catch (e) {
+    dbErr('getNewProducts', e)
     return []
   }
 }
@@ -826,7 +843,8 @@ export async function getOurRankingTimeline(): Promise<OurRankingTimelineEntry[]
         AND mr.category_name NOT IN ('선스틱', '선세럼·미스트')
       ORDER BY mr.goods_no, mr.category_name, mr.rank_hour
     `)
-  } catch {
+  } catch (e) {
+    dbErr('getOurRankingTimeline', e)
     return []
   }
 }
@@ -882,7 +900,8 @@ export async function getPromoStatus(): Promise<PromoStatusData[]> {
       promo_type,
       ...data,
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getPromoStatus', e)
     return []
   }
 }
@@ -960,7 +979,8 @@ export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
       top_keywords: kwMap.get(a.goods_no) ?? [],
       sample: sampleMap.get(a.goods_no) ?? '',
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getNegativeAlerts', e)
     return []
   }
 }
@@ -1028,7 +1048,8 @@ export async function getProductKeywords(): Promise<ProductKeywordData[]> {
       pos_keywords: posMap.get(p.goods_no) ?? [],
       neg_keywords: negMap.get(p.goods_no) ?? [],
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getProductKeywords', e)
     return []
   }
 }
@@ -1116,7 +1137,8 @@ export async function getOlivepickHistory(): Promise<OlivepickMonth[]> {
     }
 
     return Array.from(monthMap.values())
-  } catch {
+  } catch (e) {
+    dbErr('getOlivepickHistory', e)
     return []
   }
 }
@@ -1143,7 +1165,8 @@ export async function getTodayDealHistory(from: string, to: string): Promise<Tod
       is_ours: Boolean(r.is_ours),
     }))
     return { items, total: items.length }
-  } catch {
+  } catch (e) {
+    dbErr('getTodayDealHistory', e)
     return { items: [], total: 0 }
   }
 }
@@ -1159,7 +1182,8 @@ export async function getPromoMonthlyInsight(month: string): Promise<PromoMonthl
     if (!rows[0]) return null
     const r = rows[0]
     return { month: r.month, concept_tags: r.concept_tags, summary: r.summary, action_points: r.action_points ?? [], generated_at: r.generated_at ?? null }
-  } catch {
+  } catch (e) {
+    dbErr('getPromoMonthlyInsight', e)
     return null
   }
 }
@@ -1193,7 +1217,8 @@ export async function getPromoInsightHistory(month: string): Promise<{ id: numbe
       ORDER BY saved_at DESC
     `, [month])
     return rows.map(r => ({ ...r, action_points: r.action_points ?? [] }))
-  } catch {
+  } catch (e) {
+    dbErr('getPromoInsightHistory', e)
     return []
   }
 }
@@ -1251,7 +1276,8 @@ export async function getProductTopicInsights(): Promise<ProductTopicData[]> {
     return topProducts
       .filter(p => cachedMap.has(p.goods_no))
       .map(p => ({ goods_no: p.goods_no, ...cachedMap.get(p.goods_no) }))
-  } catch {
+  } catch (e) {
+    dbErr('getProductTopicInsights', e)
     return []
   }
 }
@@ -1276,7 +1302,7 @@ export async function getBrandEvents(brandName?: string, limit = 50): Promise<Br
       brandName ? [brandName, limit] : [limit]
     )
     return rows
-  } catch { return [] }
+  } catch (e) { dbErr('getBrandEvents', e); return [] }
 }
 
 export async function getBrandNames(): Promise<string[]> {
@@ -1287,7 +1313,7 @@ export async function getBrandNames(): Promise<string[]> {
       ORDER BY brand_name
     `)
     return rows.map(r => r.brand_name)
-  } catch { return [] }
+  } catch (e) { dbErr('getBrandNames', e); return [] }
 }
 
 export async function saveBrandEvent(event: Omit<BrandEvent, 'id' | 'detected_at'>): Promise<void> {
@@ -1313,7 +1339,7 @@ export async function getPriceHistory(goodsNo: string, days = 90): Promise<Price
       WHERE goods_no = $1 AND recorded_date >= CURRENT_DATE - $2
       ORDER BY recorded_date ASC
     `, [goodsNo, days])
-  } catch { return [] }
+  } catch (e) { dbErr('getPriceHistory', e); return [] }
 }
 
 // ─────────────────────────────────────────
@@ -1456,7 +1482,7 @@ export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
     // 경쟁사 대비 비싼 순 — 가격 저항이 큰 제품이 먼저 보여야 한다
     out.sort((a, b) => b.diff_pct - a.diff_pct)
     return out
-  } catch { return [] }
+  } catch (e) { dbErr('getUnitPriceComparison', e); return [] }
 }
 
 // ─────────────────────────────────────────
@@ -1517,7 +1543,7 @@ export async function getPriceChanges(days = 14, minPct = 5): Promise<PriceChang
         changed_on: r.changed_on,
       }
     })
-  } catch { return [] }
+  } catch (e) { dbErr('getPriceChanges', e); return [] }
 }
 
 // ─────────────────────────────────────────
@@ -1539,7 +1565,7 @@ export async function getRepurchaseTrend(months = 12): Promise<RepurchaseTrendPo
       GROUP BY 1
       ORDER BY 1
     `, [months])
-  } catch { return [] }
+  } catch (e) { dbErr('getRepurchaseTrend', e); return [] }
 }
 
 // ─────────────────────────────────────────
@@ -1558,7 +1584,7 @@ export async function getOlivepickRankTrend(goodsNo: string): Promise<OlivepickR
       GROUP BY 1
       ORDER BY 1
     `, [goodsNo])
-  } catch { return [] }
+  } catch (e) { dbErr('getOlivepickRankTrend', e); return [] }
 }
 
 // ─────────────────────────────────────────
@@ -2059,7 +2085,8 @@ export async function getCompetitorInsights(category?: string): Promise<import('
         ? JSON.parse(r.negative_keywords)
         : (r.negative_keywords as { word: string; cnt: number }[] ?? []),
     }))
-  } catch {
+  } catch (e) {
+    dbErr('getCompetitorInsights', e)
     return []
   }
 }
