@@ -37,6 +37,9 @@ class Check:
     mode: str = 'min'   # 'min' = 이 값 미만이면 실패 / 'max' = 초과하면 실패
     unit: str = '건'
     hint: str = ''      # 실패 시 어디를 봐야 하는지
+    # 실패했을 때 '무엇이' 걸렸는지 한 줄씩 보여줄 쿼리.
+    # 숫자만 울리면 결국 DB를 뒤져야 해서 아무도 안 본다.
+    detail_sql: str = ''
 
     def failed(self, value: float) -> bool:
         return value < self.threshold if self.mode == 'min' else value > self.threshold
@@ -70,6 +73,74 @@ CHECKS: list[Check] = [
                ) t""",
         threshold=2, mode='max', unit='일 경과',
         hint='특정 카테고리만 0건 수집되고 있다 — rank_collector 로그에서 해당 카테고리 확인',
+    ),
+
+    # ── 자사 순위 변동 ──
+    # 여기까지는 '수집기가 도는가'만 봤다. 수집은 멀쩡한데 자사 상품이 랭킹에서
+    # 사라지는 건 아무도 알려주지 않았다 — 실제로 147일째 안 보이는 상품이 있다.
+    # 올영픽 이탈을 감지하듯(아래) 랭킹 이탈도 감지한다.
+    Check(
+        stage='rank', label='자사 랭킹 이탈',
+        # '지금 없다'가 아니라 '최근까지 있다가 빠졌다'를 본다. 단종된 상품까지
+        # 세면 매일 같은 숫자가 울려 아무도 안 보게 된다. 3~10일 창이라
+        # 새로 빠진 것만 잡히고, 10일이 지나면 저절로 조용해진다.
+        sql="""WITH last_seen AS (
+                 SELECT mr.goods_no, MAX(mr.rank_date) AS d
+                 FROM market_rankings mr
+                 JOIN products p ON p.goods_no = mr.goods_no
+                 WHERE p.is_competitor = false
+                 GROUP BY mr.goods_no
+               )
+               SELECT COUNT(*) FROM last_seen
+               WHERE d <= CURRENT_DATE - 3 AND d >= CURRENT_DATE - 10""",
+        threshold=0, mode='max', unit='개',
+        hint='최근 랭킹에 있다가 빠진 자사 상품. 단종이면 무시, 아니면 노출·가격·리뷰를 보라',
+        detail_sql=r"""WITH last_seen AS (
+                        SELECT mr.goods_no, MAX(mr.rank_date) AS d
+                        FROM market_rankings mr
+                        JOIN products p ON p.goods_no = mr.goods_no
+                        WHERE p.is_competitor = false
+                        GROUP BY mr.goods_no
+                      )
+                      SELECT (CURRENT_DATE - ls.d)::text || '일째',
+                             LEFT(REGEXP_REPLACE(p.goods_name, '\[[^]]*\]', '', 'g'), 32)
+                      FROM last_seen ls JOIN products p ON p.goods_no = ls.goods_no
+                      WHERE ls.d <= CURRENT_DATE - 3 AND ls.d >= CURRENT_DATE - 10
+                      ORDER BY ls.d""",
+    ),
+    Check(
+        stage='rank', label='자사 순위 급락',
+        # 30계단을 기준으로 잡은 건 실측 때문이다. 최근 30일 기준 하루
+        # 20계단+ 0~2건 / 30계단+ 0~2건 / 50계단+ 0~1건.
+        # 20은 잦아 묻히고 50은 드물어 놓친다.
+        sql="""WITH best AS (
+                 SELECT mr.goods_no, mr.rank_date, MIN(mr.rank_position) AS r
+                 FROM market_rankings mr
+                 JOIN products p ON p.goods_no = mr.goods_no
+                 WHERE p.is_competitor = false
+                   AND mr.rank_date >= CURRENT_DATE - 1
+                 GROUP BY mr.goods_no, mr.rank_date
+               )
+               SELECT COUNT(*)
+               FROM best t
+               JOIN best y ON y.goods_no = t.goods_no AND y.rank_date = t.rank_date - 1
+               WHERE t.rank_date = CURRENT_DATE AND t.r - y.r >= 30""",
+        threshold=0, mode='max', unit='개',
+        hint='전일 대비 최고순위가 30계단 이상 밀린 자사 상품. 경쟁사 기획전·가격 변동을 먼저 보라',
+        detail_sql=r"""WITH best AS (
+                        SELECT mr.goods_no, mr.rank_date, MIN(mr.rank_position) AS r
+                        FROM market_rankings mr
+                        JOIN products p ON p.goods_no = mr.goods_no
+                        WHERE p.is_competitor = false AND mr.rank_date >= CURRENT_DATE - 1
+                        GROUP BY mr.goods_no, mr.rank_date
+                      )
+                      SELECT y.r::text || '위 → ' || t.r::text || '위',
+                             LEFT(REGEXP_REPLACE(p.goods_name, '\[[^]]*\]', '', 'g'), 32)
+                      FROM best t
+                      JOIN best y ON y.goods_no = t.goods_no AND y.rank_date = t.rank_date - 1
+                      JOIN products p ON p.goods_no = t.goods_no
+                      WHERE t.rank_date = CURRENT_DATE AND t.r - y.r >= 30
+                      ORDER BY t.r - y.r DESC""",
     ),
 
     # ── 프로모션 (올영픽이 끊겼던 지점) ──
@@ -302,10 +373,19 @@ def verify(stage: str | None = None, notify: bool = True, quiet: bool = False) -
                 num = int(value) if value == int(value) else value
                 if c.failed(value):
                     sign = '미만' if c.mode == 'min' else '초과'
-                    failed.append(
-                        f"❌ {c.label}: {num}{c.unit} "
-                        f"(기준 {int(c.threshold)}{c.unit} {sign})\n     → {c.hint}"
-                    )
+                    msg = (f"❌ {c.label}: {num}{c.unit} "
+                           f"(기준 {int(c.threshold)}{c.unit} {sign})\n     → {c.hint}")
+                    # 숫자만 울리면 결국 DB 를 뒤져야 해서 아무도 안 본다.
+                    # 무엇이 걸렸는지 한 줄씩 붙인다 (최대 8줄).
+                    if c.detail_sql:
+                        try:
+                            cur.execute(c.detail_sql)
+                            for r in cur.fetchall()[:8]:
+                                vals = list(r.values()) if isinstance(r, dict) else list(r)
+                                msg += "\n       · " + " · ".join(str(v) for v in vals)
+                        except Exception as e:
+                            msg += f"\n       (목록: {str(e).splitlines()[0][:40]})"
+                    failed.append(msg)
                 else:
                     passed.append(f"✅ {c.label}: {num}{c.unit}")
 
