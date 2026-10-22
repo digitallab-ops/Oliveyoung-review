@@ -9,23 +9,44 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 
+# 흉내낼 브라우저 지문. 낡으면 차단당한다 — Cloudflare 가 지문 DB 를 갱신하기
+# 때문에 '오래된 크롬 흉내'가 평범한 요청보다 오히려 더 수상해진다.
+# 2026-10-22 실측 (리뷰 cursor API):
+#   chrome120 403 · chrome124 403 · chrome131 403
+#   chrome133a 200 · chrome136 200 · safari18_0 200 · firefox135 200
+# chrome120 에 고정돼 있어서 리뷰 수집이 사흘간 403 으로 0건이었다. 수집기는
+# 정상 종료했고 아무도 몰랐다. 그래서 하나로 고정하지 않고 차례로 바꿔 쓴다.
+_IMPERSONATE_CHAIN = ["chrome136", "chrome133a", "firefox135", "safari18_0"]
+_imp_idx = 0
+
 try:
     from curl_cffi import requests as cf_requests
-    _IMPERSONATE = "chrome120"
+    _HAS_CF = True
 except ImportError:
     cf_requests = requests
-    _IMPERSONATE = None
+    _HAS_CF = False
+
+
+def _impersonate() -> str:
+    return _IMPERSONATE_CHAIN[_imp_idx % len(_IMPERSONATE_CHAIN)]
+
+
+def rotate_impersonate() -> str:
+    """지문이 막혔을 때 다음 것으로 바꾼다."""
+    global _imp_idx
+    _imp_idx += 1
+    return _impersonate()
 
 
 def _cf_post(url, **kwargs):
-    if _IMPERSONATE:
-        return cf_requests.post(url, impersonate=_IMPERSONATE, **kwargs)
+    if _HAS_CF:
+        return cf_requests.post(url, impersonate=_impersonate(), **kwargs)
     return requests.post(url, **kwargs)
 
 
 def _cf_get(url, **kwargs):
-    if _IMPERSONATE:
-        return cf_requests.get(url, impersonate=_IMPERSONATE, **kwargs)
+    if _HAS_CF:
+        return cf_requests.get(url, impersonate=_impersonate(), **kwargs)
     return requests.get(url, **kwargs)
 
 
@@ -34,7 +55,10 @@ def cf_request_with_retries(method: str, url: str, max_retries: int = 5, backoff
     - 429, 5xx 응답 및 일시적 네트워크 오류에 대해 재시도
     - 지수 백오프 + 랜덤 지터 적용
     """
+    # 403 은 '지문이 막혔다'는 뜻이라 같은 조건으로 다시 때려야 소용없다.
+    # 지문을 바꿔 끼운 뒤 재시도한다. 체인을 다 돌면 포기한다.
     retry_statuses = {429, 500, 502, 503, 504}
+    blocked_statuses = {403}
     for attempt in range(1, max_retries + 1):
         try:
             if method.lower() == 'get':
@@ -55,6 +79,15 @@ def cf_request_with_retries(method: str, url: str, max_retries: int = 5, backoff
             sleep = backoff_base * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
             print(f"    응답 없음, 재시도 {attempt}/{max_retries} 대기 {sleep:.1f}s")
             time.sleep(sleep)
+            continue
+
+        if res.status_code in blocked_statuses and _HAS_CF:
+            if attempt == max_retries or attempt > len(_IMPERSONATE_CHAIN):
+                return res
+            nxt = rotate_impersonate()
+            print(f"    HTTP 403 — 브라우저 지문을 {nxt} 로 바꿔 재시도 "
+                  f"{attempt}/{max_retries}")
+            time.sleep(1.0 + random.uniform(0, 0.5))
             continue
 
         if res.status_code in retry_statuses:
