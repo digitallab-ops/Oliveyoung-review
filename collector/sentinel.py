@@ -215,6 +215,34 @@ CHECKS: list[Check] = [
         hint='pipeline — 매일 오전 6시 수집',
     ),
 
+    # ── 돌았는데 0건 ──
+    # 신선도 점검(위)은 '언제 마지막으로 들어왔나'만 본다. 수집기가 차단당해
+    # 0건을 받고도 exit 0 으로 정상 종료하면, 기준일이 지나야 울린다.
+    # 실제로 리뷰가 403 으로 사흘간 0건이었는데 아무도 몰랐다.
+    # 그래서 '양'을 따로 본다. 하루치만 보면 수집 시각 전에 점검이 돌 때
+    # 헛울리므로 2일 합계로 본다 — 이틀 연속 0 이어야 울린다.
+    Check(
+        stage='review', label='리뷰 수집량 (2일)',
+        sql="""SELECT COUNT(*) FROM reviews
+               WHERE collected_at >= CURRENT_DATE - 1""",
+        threshold=10, unit='건',
+        hint='정상 하루 42~129건. 0에 가까우면 차단이다 — '
+             'logs/collector_pipeline_*.log 에서 403 을 찾아보라',
+        detail_sql="""SELECT DATE(collected_at)::text, COUNT(*)::text || '건'
+                      FROM reviews WHERE collected_at >= CURRENT_DATE - 4
+                      GROUP BY 1 ORDER BY 1 DESC""",
+    ),
+    Check(
+        stage='price', label='가격 수집량 (2일)',
+        sql="""SELECT COUNT(*) FROM price_history
+               WHERE recorded_date >= CURRENT_DATE - 1""",
+        threshold=10, unit='건',
+        hint='정상 하루 45~74건. 0에 가까우면 차단이거나 선택자가 바뀐 것이다',
+        detail_sql="""SELECT recorded_date::text, COUNT(*)::text || '건'
+                      FROM price_history WHERE recorded_date >= CURRENT_DATE - 4
+                      GROUP BY 1 ORDER BY 1 DESC""",
+    ),
+
     # ── 가격 ──
     Check(
         stage='price', label='가격 수집 신선도',
