@@ -1,17 +1,11 @@
 import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getCompetitorSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights, getCompetitorInsights, getUnitPriceComparison, getPriceChanges } from '@/lib/db'
-import { generateMarketInsight, generateReviewInsight, generateDailyBrief } from '@/lib/ai'
+import { readMarketInsight, readReviewInsight, readDailyBrief } from '@/lib/ai'
 import PlatformShell from '@/components/PlatformShell'
 import FeatureGuide from '@/components/FeatureGuide'
 
 export const revalidate = 300
 export const maxDuration = 60
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
-  ])
-}
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -48,7 +42,7 @@ export default async function Page() {
   const insightsDefault = { positive_keywords: [], negative_keywords: [], total_reviews: 0, skin_dist: [], top_product: null }
   const rankingsDefault = { best: [], avg: [], weekly: [], lastCollected: {} }
 
-  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, competitorInsights, unitPrices, priceChanges] = await Promise.all([
+  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, competitorInsights, unitPrices, priceChanges, productTopics] = await Promise.all([
     safe(getStats, statsDefault),
     safe(getInsights, insightsDefault),
     safe(getScoreDist, []),
@@ -68,27 +62,20 @@ export default async function Page() {
     safe(getCompetitorInsights, []),
     safe(getUnitPriceComparison, []),
     safe(() => getPriceChanges(), []),
+    // 혼자 Promise.all 밖에서 순차로 돌아 전체 렌더에 그대로 더해지고 있었다
+    safe(getProductTopicInsights, []),
   ])
 
-  const productTopics = await safe(getProductTopicInsights, [])
 
-  // AI 생성은 반드시 병렬로. 순차로 두면 타임아웃이 더해져(25×3=75초)
-  // Vercel의 정적 페이지 생성 제한 60초를 넘긴다.
-  // 결과는 KST 날짜 기준으로 DB에 캐시되므로, 날짜가 바뀐 뒤 첫 배포에서만
-  // 세 호출이 실제로 일어난다 — 그 한 번이 빌드를 깨뜨렸다.
+  // 렌더 경로에서는 AI 를 생성하지 않는다. 캐시만 읽는다.
+  // 전에는 캐시가 비면 여기서 OpenAI 를 부르고 최대 20초를 기다렸다.
+  // 배포 직후나 KST 날짜가 바뀐 뒤 첫 로드가 그만큼 느려지던 원인이다.
+  // 캐시를 채우는 건 /api/revalidate 쪽이고, 수집기(rank_collector 매시,
+  // pipeline, promo_collector)가 수집 직후 그걸 호출한다.
   const [marketInsight, reviewInsight, dailyBrief] = await Promise.all([
-    withTimeout(
-      marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''),
-      20000, ''
-    ),
-    withTimeout(
-      generateReviewInsight(insights, negativeData),
-      20000, ''
-    ),
-    withTimeout(
-      marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''),
-      20000, ''
-    ),
+    readMarketInsight(),
+    readReviewInsight(),
+    readDailyBrief(),
   ])
 
   return (

@@ -41,7 +41,9 @@ export async function getStats(): Promise<Stats> {
     last_updated: string | null
   }>(`
     SELECT
-      (SELECT COUNT(*) FROM reviews)::int                          AS total_reviews,
+      -- reviews 를 두 번 풀스캔하고 있었다. 서브쿼리 COUNT(*) 와 아래 집계가
+      -- 같은 테이블을 각각 훑는다. FROM 이 reviews 이므로 COUNT(*) 하나면 된다.
+      COUNT(*)::int                                                AS total_reviews,
       (SELECT COUNT(*) FROM products)::int                         AS total_products,
       ROUND(AVG(r.score)::numeric, 2)                              AS avg_score,
       COUNT(*) FILTER (WHERE r.score = 5)                         AS five_star_count,
@@ -1502,7 +1504,9 @@ export async function getPriceChanges(days = 14, minPct = 5): Promise<PriceChang
                MIN(recorded_date) AS first_date,
                MAX(recorded_date) AS last_date
         FROM price_history
-        WHERE recorded_date >= CURRENT_DATE - $1
+        -- $1 에 캐스팅이 없으면 Postgres 가 date - date -> integer 로 풀어서
+        -- 'date >= integer' 로 터진다. 이 쿼리는 그래서 계속 조용히 실패했다.
+        WHERE recorded_date >= CURRENT_DATE - $1::int
         GROUP BY goods_no
         HAVING COUNT(DISTINCT price) > 1
       )

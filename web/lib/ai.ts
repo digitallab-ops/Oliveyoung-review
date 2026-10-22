@@ -114,6 +114,41 @@ ${topNeg.length ? topNeg.join('\n') : '없음'}
 - 첫 글자부터 "- "로 시작`
 }
 
+// ── 캐시 읽기 전용 ────────────────────────────────────────
+// 페이지 렌더는 이 셋만 쓴다. generate* 는 캐시가 없으면 OpenAI 를 부르고
+// 최대 20초를 기다리는데, 그게 배포 직후 첫 로드를 그만큼 늘리고 있었다.
+// 캐시는 수집기가 채운다 — rank_collector(매시) / pipeline / promo_collector 가
+// /api/revalidate 를 호출하고, 그 라우트가 generate* 를 돌린다.
+// 캐시가 비면 빈 문자열이 돌아가고 화면은 해당 블록을 감춘다.
+
+async function readCached(sql: string, params: unknown[], col: string): Promise<string> {
+  try {
+    const r = await pool.query(sql, params)
+    return r.rows[0]?.[col] ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export async function readDailyBrief(): Promise<string> {
+  return readCached(
+    'SELECT brief_text FROM daily_briefs WHERE brief_date = $1',
+    [getKSTDateStr()], 'brief_text')
+}
+
+export async function readMarketInsight(): Promise<string> {
+  return readCached(
+    'SELECT insight_text FROM market_insights WHERE insight_date = $1 AND slot = $2',
+    [getKSTDateStr(), getSlot()], 'insight_text')
+}
+
+export async function readReviewInsight(): Promise<string> {
+  return readCached(
+    'SELECT insight_text FROM review_insights WHERE insight_date = $1',
+    [getKSTDateStr()], 'insight_text')
+}
+
+
 export async function generateDailyBrief(
   marketData: MarketCategoryData[],
   insights: Insights,
