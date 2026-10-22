@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -57,14 +58,22 @@ def revalidate_vercel():
     app_url = os.getenv('APP_URL', '').rstrip('/')
     if not app_url:
         return
+    # 시크릿 없이 부르면 라우트가 401 로 거절한다. pipeline.py 만 보내고 있어서
+    # 나머지 수집기의 캐시 무효화가 전부 실패하고 있었다(오늘 하루 401 16건).
+    # 매시간 도는 rank_collector 가 여기 포함돼 AI 요약 캐시도 안 채워졌다.
+    secret = os.getenv('REVALIDATE_SECRET', '')
+    payload = json.dumps({'secret': secret}).encode() if secret else b'{}'
     try:
         req = urllib.request.Request(
             f'{app_url}/api/revalidate',
-            data=b'{}',
+            data=payload,
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
-        urllib.request.urlopen(req, timeout=10)
+        # 라우트가 캐시 비우기 뒤에 AI 3개를 돌린다(maxDuration 60초).
+        # 10초로 두면 실제로는 성공했는데 매번 timeout 으로 찍혀
+        # 진짜 장애와 구분이 안 된다. 서버 상한에 맞춰 70초로 둔다.
+        urllib.request.urlopen(req, timeout=70)
         print('  Vercel 캐시 초기화 완료')
     except Exception as e:
         print(f'  Vercel 캐시 초기화 실패: {e}')
