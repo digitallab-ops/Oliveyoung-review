@@ -488,7 +488,7 @@ def estimate_only(goods_no: str | None = None) -> None:
 
 
 def run(goods_no: str | None = None, do_all: bool = False,
-        yes: bool = False) -> None:
+        yes: bool = False, max_cost: float = 0.0) -> None:
     conn = get_conn()
     conn.autocommit = True
     ensure_tables(conn)
@@ -521,7 +521,20 @@ def run(goods_no: str | None = None, do_all: bool = False,
         print("대상 없음 — 현재 스키마로 이미 전부 분석됐다")
         conn.close()
         return
-    if not budget_gate([g for g, _ in targets], yes):
+    # 자동 실행(2주 주기)에서는 사람이 --yes 를 눌러줄 수 없다. 대신 상한을
+    # 준다. 평소 신규분은 몇 달러면 끝나므로, 그걸 넘으면 뭔가 잘못된 것이다
+    # (스키마 표식이 초기화돼 전수 재분석이 잡혔다든지).
+    if max_cost > 0:
+        panels = sum(estimate_panels(g) for g, _ in targets)
+        cost = panels * COST_PER_PANEL
+        print(f"[예상] 상품 {len(targets)}개 · 패널 {panels:,}개 · 약 ${cost:,.2f} "
+              f"(상한 ${max_cost:,.2f})")
+        if cost > max_cost:
+            print(f"  상한 초과 — 돌리지 않는다. 대상이 왜 이렇게 많은지 "
+                  f"확인하고 수동으로 --yes 로 돌려라.")
+            conn.close()
+            return
+    elif not budget_gate([g for g, _ in targets], yes):
         conn.close()
         return
 
@@ -557,8 +570,10 @@ if __name__ == "__main__":
                     help=f"예상 비용이 ${BUDGET_GATE:.2f} 를 넘어도 진행")
     ap.add_argument("--estimate", action="store_true",
                     help="돈 쓰지 않고 예상 비용만 출력")
+    ap.add_argument("--max-cost", type=float, default=0.0,
+                    help="예상 비용이 이 금액을 넘으면 돌리지 않는다 (자동 실행용)")
     a = ap.parse_args()
     if a.estimate:
         estimate_only(a.goods)
     else:
-        run(a.goods, a.all, a.yes)
+        run(a.goods, a.all, a.yes, a.max_cost)
