@@ -45,9 +45,42 @@ _SUFFIX_FILTER_SQL = """
 """
 
 
+def _set_kst(conn):
+    """접속 세션의 타임존을 KST 로 맞춘다.
+
+    왜 필요한가:
+      서버(Supabase)의 기본 타임존은 UTC 다. 그런데 수집기는 KST 기준으로
+      날짜를 쓴다(rank_date, promo_items.collected_at, brief_date ...).
+      그래서 `= CURRENT_DATE` 비교가 KST 00~09 시 사이에 '어제'를 가리켰다.
+      파수꾼의 "올영픽 오늘 0건" 거짓 경보와, 신제품·가격급락 감지가 한 번도
+      작동하지 못한 원인이 이것이다.
+
+    왜 options 가 아니라 SET 인가:
+      Supabase 풀러는 options 의 search_path 는 받아주면서 timezone 은
+      조용히 무시한다(에러도 없이 UTC 로 남는다). 접속 뒤 SET 은 적용되고
+      세션 모드(5432)에서 유지된다.
+
+    autocommit 을 잠깐 켜는 이유:
+      SET 도 트랜잭션의 일부라, 나중에 rollback 되면 같이 되돌아간다.
+      바로 확정시켜야 세션 내내 유지된다.
+
+    명시적으로 쓴 `AT TIME ZONE 'Asia/Seoul'` 들은 영향을 받지 않는다.
+    """
+    prev = conn.autocommit
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SET TIME ZONE 'Asia/Seoul'")
+    finally:
+        conn.autocommit = prev
+    return conn
+
+
 def get_conn():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor,
-                            options="-c statement_timeout=0 -c search_path=oliveyoung")
+    # connect_timeout: 없으면 DB 가 반쯤 죽었을 때 무한 대기한다.
+    return _set_kst(psycopg2.connect(
+        DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=15,
+        options="-c statement_timeout=0 -c search_path=oliveyoung"))
 
 
 def init_db(conn=None):
@@ -279,6 +312,15 @@ def init_db(conn=None):
                     UNIQUE(goods_no, recorded_date)
                 )
             """)
+            # price 한 칸만 쌓다 보니 그 값이 정가인지 세일가인지 구분이 안 됐다.
+            # 게다가 parse_price 가 price-before(정가)를 우선해서, 사실상 정가만
+            # 쌓고 있었다 — 35% 세일 중인 상품도 정가로 기록돼 "변동 없음"으로 보였다.
+            # 상세 페이지에 정가·판매가·할인율·단가가 다 있으니 같이 저장한다.
+            for col, typ in (('sale_price', 'INT'), ('base_price', 'INT'),
+                             ('discount_rate', 'INT'), ('unit_price', 'INT'),
+                             ('unit_basis', 'TEXT')):
+                cur.execute(f"ALTER TABLE price_history "
+                            f"ADD COLUMN IF NOT EXISTS {col} {typ}")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_price_history_goods
                     ON price_history(goods_no, recorded_date DESC)

@@ -107,9 +107,35 @@ def _save(conn, product_id, product_name, review_count, content):
         )
 
 
+def _has_new_reviews(conn, product_id) -> bool:
+    """마지막 인사이트 이후 들어온 리뷰가 있는지.
+
+    쿠팡 리뷰는 2026-06 이후 사실상 멈췄는데, 같은 리뷰로 매일 42건씩 새로
+    만들고 있었다(최근 14일 533행인데 (상품, 리뷰수) 조합은 41개뿐).
+    입력이 그대로면 결과도 그대로라 돈만 나간다.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MAX(created_at) AS last FROM insight_history "
+            "WHERE product_id IS NOT DISTINCT FROM %s", (product_id or None,))
+        last = cur.fetchone()['last']
+        if last is None:
+            return True                      # 한 번도 만든 적 없으면 만든다
+        if product_id:
+            cur.execute("SELECT 1 FROM reviews WHERE product_id = %s "
+                        "AND collected_at > %s LIMIT 1", (product_id, last))
+        else:
+            cur.execute("SELECT 1 FROM reviews WHERE collected_at > %s LIMIT 1", (last,))
+        return cur.fetchone() is not None
+
+
 def _run_for(conn, product_id, label):
     if _already_ran_today(conn, product_id):
         print(f"  {label}: 오늘 이미 분석 완료 — 스킵")
+        return
+
+    if not _has_new_reviews(conn, product_id):
+        print(f"  {label}: 마지막 분석 이후 새 리뷰 없음 — 스킵")
         return
 
     reviews = _fetch_reviews(conn, product_id)

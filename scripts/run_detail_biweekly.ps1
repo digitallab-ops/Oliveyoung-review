@@ -44,16 +44,31 @@ try {
 
     # web/public/detail/ 이 바뀌었으면 사람이 커밋해야 배포된다.
     # 자동 커밋/푸시는 하지 않는다 — 운영 레포에 무인 푸시를 넣고 싶지 않다.
-    $changed = & git -C $REPO status --porcelain -- web/public/detail 2>$null
-    if ($changed) {
-        $n = ($changed | Measure-Object -Line).Lines
-        Send-Slack "상세페이지 2주 주기 완료 — web/public/detail 에 변경 $n건.`n배포하려면 커밋/푸시가 필요합니다."
+    # 단계 중 하나라도 실패했으면 "완료" 라고 보내면 안 된다.
+    # 분석기가 상한에 막히면 exit 3 으로 끝나므로 여기서 잡힌다.
+    $failedCount = [int]$global:OY_FAILED
+    if ($failedCount -gt 0) {
+        Send-Slack ("상세페이지 2주 주기 — 단계 $failedCount 건 실패.`n" +
+                    "분석이 상한(`$$maxCost)에 막혔을 수 있습니다. 로그를 확인하세요.")
     } else {
-        Send-Slack "상세페이지 2주 주기 완료 — 변경 없음(신규 상품 없음)."
+        $changed = & git -C $REPO status --porcelain -- web/public/detail 2>$null
+        if ($changed) {
+            $n = ($changed | Measure-Object -Line).Lines
+            Send-Slack "상세페이지 2주 주기 완료 — web/public/detail 에 변경 $n건.`n배포하려면 커밋/푸시가 필요합니다."
+        } else {
+            Send-Slack "상세페이지 2주 주기 완료 — 변경 없음(신규 상품 없음)."
+        }
     }
 } catch {
     Write-Host "FATAL: $_"
+    $global:OY_FAILED = [int]$global:OY_FAILED + 1
     Send-Slack "상세페이지 2주 주기 실패: $_"
 } finally {
     Stop-Transcript | Out-Null
 }
+
+# powershell -File 은 exit 를 안 쓰면 무조건 0 을 돌려준다.
+# 그래서 수집기가 죽어도 작업 스케줄러에는 0x0(성공)으로 남았다.
+# 실패가 있으면 비0 으로 끝내야 스케줄러·외부 감시가 장애를 본다.
+if ([int]$global:OY_FAILED -gt 0) { exit 1 }
+exit 0

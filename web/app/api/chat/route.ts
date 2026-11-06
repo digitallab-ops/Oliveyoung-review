@@ -4,7 +4,7 @@ import {
   getStats, getMarketRankings, getPromoStatus, getNegativeAlerts,
   getProductStats, getInsights, getNewProducts, getOurRankingTimeline,
   getCoupangStats, getCoupangProductStats, getCoupangRankings, getCoupangRecentReviews,
-  getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
+  getNaverTrends,
   getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
 } from '@/lib/db'
 
@@ -43,9 +43,6 @@ const TOOL_TTL: Record<string, number> = {
   get_coupang_rankings:      5 * 60_000,
   get_coupang_reviews:       5 * 60_000,
   get_naver_trends:         10 * 60_000,
-  get_naver_search_ranks:    5 * 60_000,
-  get_naver_market:          5 * 60_000,
-  get_naver_insight:        10 * 60_000,
   get_reviews_by_date:       2 * 60_000,
   get_review_content:        2 * 60_000,
   get_weekly_delta:          5 * 60_000,
@@ -92,9 +89,9 @@ const SYSTEM_BASE = `당신은 셀퓨전씨 전속 멀티플랫폼 인사이트 
 
 도구 선택 (네이버):
 · "검색 트렌드 / 검색량" → get_naver_trends
-· "네이버 검색 노출 / 순위" → get_naver_search_ranks
-· "경쟁사 가격 / 시장 현황" → get_naver_market
-· "네이버 AI 인사이트 / 분석 요약" → get_naver_insight
+· 네이버는 검색 트렌드만 있다. 검색 노출 순위와 경쟁사 시장 데이터는
+  2026-08 에 네이버가 쇼핑 API 를 닫아 수집이 멈췄다 — 물으면 그렇게 답하고
+  없는 수치를 만들지 마라.
 
 출력 형식 (반드시 준수):
 · **, __, ##, >, 백틱, ~ 같은 마크다운 기호 절대 사용 금지.
@@ -288,30 +285,10 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'get_naver_search_ranks',
-      description: '[네이버] 쇼핑 키워드 검색 순위. 자사 상품 노출 위치(is_ours=true).',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_naver_market',
-      description: '[네이버] 카테고리별 경쟁사 상품 목록. 브랜드별 가격 분포.',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_naver_insight',
-      description: '[네이버] 가장 최근 자동 생성된 AI 네이버 시장 분석 인사이트.',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
+  // get_naver_search_ranks / get_naver_market / get_naver_insight 는 뺐다.
+  // 네이버가 쇼핑 검색 API 를 2026-08-01 에 닫아 데이터가 7월에 멈춰 있는데,
+  // 챗봇은 그걸 '현재 시장'으로 답했다. 낡은 값을 그럴듯하게 말하는 게
+  // 데이터가 없다고 하는 것보다 나쁘다.
 ]
 
 async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -344,12 +321,6 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       return await getOurRankingTimeline()
     case 'get_naver_trends':
       return await getNaverTrends()
-    case 'get_naver_search_ranks':
-      return await getNaverSearchRanks()
-    case 'get_naver_market':
-      return await getNaverMarket()
-    case 'get_naver_insight':
-      return await getNaverLatestInsight()
     case 'get_reviews_by_date':
       return await getReviewsByDate(input.date as string, (input.goods_no as string) || '')
     case 'get_review_content':

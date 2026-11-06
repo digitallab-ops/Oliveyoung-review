@@ -112,11 +112,27 @@ def _extract_asin(url_or_href: str) -> str | None:
     return m.group(1) if m else None
 
 
+_OUR_KEYWORDS = ('cellfusion', 'cell fusion', '셀퓨전')
+
+
+def _is_ours(p: dict) -> bool:
+    """브랜드 검색 결과에는 경쟁사·연관 상품이 섞인다.
+
+    원래는 INSERT 에 TRUE 가 박혀 있어 101개 전부 자사로 찍혔다
+    (제목에 'cell fusion' 이 든 건 53개뿐이었다).
+    """
+    hay = f"{p.get('title') or ''} {p.get('brand') or ''}".lower().replace('-', '')
+    return any(k in hay for k in _OUR_KEYWORDS)
+
+
 def fetch_brand_products(driver: uc.Chrome) -> list[dict]:
     products = {}
 
     for page in range(1, 5):
-        url = f'{SEARCH_URL}?k={BRAND_QUERY}&page={page}'
+        # language=en_US 가 없으면 한국 IP 에서 amazon.com 이 한국어로 렌더된다.
+        # 그 탓에 영어 기준 선택자가 엉뚱한 글자를 집어 brand 컬럼에
+        # '지난달 구매횟수 300 이상', 'List:', 'Was:' 같은 값이 들어갔다.
+        url = f'{SEARCH_URL}?k={BRAND_QUERY}&page={page}&language=en_US'
         content = _load_page(driver, url)
         soup = BeautifulSoup(content, 'html.parser')
 
@@ -133,8 +149,19 @@ def fetch_brand_products(driver: uc.Chrome) -> list[dict]:
             title_el = item.select_one('h2 span, h2 a span')
             title = title_el.get_text(strip=True) if title_el else ''
 
-            brand_el = item.select_one('.a-row .a-size-base.a-color-secondary')
-            brand = brand_el.get_text(strip=True) if brand_el else BRAND_QUERY
+            # 예전 선택자는 '그 줄에 있는 아무 보조 텍스트'를 집었다. 가격 라벨과
+            # 판매량 문구가 brand 로 들어간 이유다. 광고 문구가 아닌 것만 받는다.
+            brand = None
+            brand_el = item.select_one('h2 ~ .a-row .a-size-base-plus.a-color-base, '
+                                       '[data-cy="title-recipe"] .a-color-secondary')
+            if brand_el:
+                cand = brand_el.get_text(strip=True)
+                bad = ('List:', 'Was:', '$', '구매횟수', 'bought', 'Typical')
+                if cand and not any(b in cand for b in bad) and len(cand) <= 60:
+                    brand = cand
+            if not brand and title:
+                # 제목 앞부분이 브랜드인 경우가 많다. 없으면 비워 둔다 — 쓰레기보다 낫다.
+                brand = title.split(',')[0].strip()[:40] or None
 
             rating_el = item.select_one('i[class*="a-star"] span.a-offscreen')
             rating_text = rating_el.get_text(strip=True) if rating_el else ''
@@ -307,14 +334,16 @@ def run():
             for p in products:
                 cur.execute("""
                     INSERT INTO products (asin, title, brand, is_ours, rating, review_count, first_seen, last_seen)
-                    VALUES (%s, %s, %s, TRUE, %s, %s, CURRENT_DATE, CURRENT_DATE)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_DATE, CURRENT_DATE)
                     ON CONFLICT (asin) DO UPDATE SET
                         title        = EXCLUDED.title,
                         brand        = EXCLUDED.brand,
+                        is_ours      = EXCLUDED.is_ours,
                         rating       = COALESCE(EXCLUDED.rating, products.rating),
                         review_count = COALESCE(EXCLUDED.review_count, products.review_count),
                         last_seen    = CURRENT_DATE
-                """, (p['asin'], p['title'], p['brand'], p['rating'], p['review_count']))
+                """, (p['asin'], p['title'], p['brand'], _is_ours(p),
+                      p['rating'], p['review_count']))
 
         total_new = 0
         for p in products:

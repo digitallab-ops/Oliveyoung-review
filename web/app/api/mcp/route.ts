@@ -5,17 +5,19 @@
  * Claude Desktop 연결:
  * claude_desktop_config.json → mcpServers → { "url": "https://oliveyoungreview.vercel.app/api/mcp" }
  *
- * 인증: MCP_API_KEY 환경변수 설정 시 Authorization: Bearer <key> 헤더 필요
+ * 인증: Authorization: Bearer <MCP_API_KEY> 필수.
+ *       환경변수가 없으면 503 으로 막는다(열어 두지 않는다).
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { z } from 'zod'
 import { NextRequest } from 'next/server'
+import { timingSafeEqual } from 'node:crypto'
 import {
   getStats, getMarketRankings, getPromoStatus, getNegativeAlerts,
   getProductStats, getInsights, getNewProducts, getOurRankingTimeline,
   getCoupangStats, getCoupangProductStats, getCoupangRankings, getCoupangRecentReviews,
-  getNaverTrends, getNaverSearchRanks, getNaverMarket, getNaverLatestInsight,
+  getNaverTrends,
   getReviewsByDate, getReviewContent, getWeeklyDelta, getProductSummaryFull,
   getRankingChanges, getTopMovers, getCompetitiveSummary, getDailyBrief,
   getCompetitorInsights, getIngredients,
@@ -165,35 +167,9 @@ function buildMcpServer(): McpServer {
     }
   )
 
-  server.tool(
-    'get_naver_search_ranks',
-    '[네이버] 쇼핑 검색 결과 순위. 키워드별 자사 셀퓨전씨 상품 노출 위치(is_ours=true).',
-    {},
-    async () => {
-      const data = await getNaverSearchRanks()
-      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
-    }
-  )
-
-  server.tool(
-    'get_naver_market',
-    '[네이버] 선케어 카테고리별 경쟁사 상품 현황. 브랜드별 가격 분포. 자사 상품은 is_ours=true.',
-    {},
-    async () => {
-      const data = await getNaverMarket()
-      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
-    }
-  )
-
-  server.tool(
-    'get_naver_insight',
-    '[네이버] 가장 최근에 자동 생성된 AI 네이버 쇼핑 시장 분석 인사이트.',
-    {},
-    async () => {
-      const data = await getNaverLatestInsight()
-      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
-    }
-  )
+  // get_naver_search_ranks / get_naver_market / get_naver_insight 는 뺐다.
+  // 네이버가 쇼핑 검색 API 를 2026-08-01 에 닫아 데이터가 7월에 멈췄는데,
+  // MCP 로 붙은 쪽에서는 그걸 현재 시장으로 읽는다. 없는 편이 낫다.
 
   // ── 고도화 툴 ─────────────────────────────────────────────────────────────────
 
@@ -316,7 +292,40 @@ function buildMcpServer(): McpServer {
   return server
 }
 
+/**
+ * 이 경로는 middleware 의 로그인 검사에서 빠져 있다(MCP 클라이언트는 쿠키가 없다).
+ * 그래서 인증이 여기 없으면 주소만 아는 누구나 리뷰 원문·순위·전성분을 가져간다.
+ * 키가 없으면 열어 두는 게 아니라 막는다 — 환경변수 누락이 곧 공개가 되면 안 된다.
+ */
+function unauthorized(reason: string, status: number): Response {
+  return new Response(JSON.stringify({ error: reason }), {
+    status,
+    headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer' },
+  })
+}
+
+function checkAuth(req: NextRequest): Response | null {
+  const key = process.env.MCP_API_KEY
+  if (!key) {
+    console.error('[mcp] MCP_API_KEY 미설정 — 요청을 거부했다')
+    return unauthorized('MCP_API_KEY not configured', 503)
+  }
+  const header = req.headers.get('authorization') ?? ''
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim())
+  if (!m) return unauthorized('missing bearer token', 401)
+
+  // timingSafeEqual 은 길이가 다르면 던진다. 길이부터 비교해야 한다.
+  const got = Buffer.from(m[1])
+  const want = Buffer.from(key)
+  if (got.length !== want.length) return unauthorized('invalid token', 401)
+  if (!timingSafeEqual(got, want)) return unauthorized('invalid token', 401)
+  return null
+}
+
 async function handle(req: NextRequest): Promise<Response> {
+  const denied = checkAuth(req)
+  if (denied) return denied
+
   const server = buildMcpServer()
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

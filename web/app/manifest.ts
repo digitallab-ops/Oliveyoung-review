@@ -10,9 +10,12 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#FAFAF9',
     theme_color: '#FAFAF9',
     orientation: 'portrait-primary',
+    // CFC.png 는 실제로 225x225 인데 192/512 로 선언돼 있었다(설치 가능성 검사에서 경고).
+    // 실제 크기에 맞춘 파일을 따로 만들어 가리킨다.
     icons: [
-      { src: '/CFC.png', sizes: '192x192', type: 'image/png' },
-      { src: '/CFC.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   }
 }

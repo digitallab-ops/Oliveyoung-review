@@ -67,9 +67,22 @@ export default function PriceChangeSection({ changes }: Props) {
     <div>
       <div className="mb-4">
         <SectionDivider tag="가격 변동" />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-xl font-semibold text-text-primary">최근 가격 변동</h2>
-          <span className="text-sm text-text-tertiary">14일 · 5% 이상</span>
+          <span className="text-sm text-text-tertiary">90일 · 5% 이상</span>
+          {/*
+            이 섹션은 처음값과 마지막값만 보여 준다. 중간 과정까지 봐야 할 때가
+            있어 원본을 통째로 내려받게 둔다. CSV 지만 엑셀에서 바로 열린다.
+          */}
+          <a
+            href="/api/price-history/export?days=180"
+            className="ml-auto text-xs px-2.5 py-1 rounded-md border border-border
+                       text-text-secondary hover:text-text-primary hover:bg-muted
+                       transition-colors whitespace-nowrap"
+            title="가격 이력 원본을 엑셀로 내려받습니다 (최근 180일)"
+          >
+            엑셀로 내려받기
+          </a>
         </div>
         <p className="text-xs text-text-tertiary mt-1">
           인하 {drops.length}건 · 인상 {hikes.length}건 — 경쟁사 인하는 프로모션 대응 타이밍 신호입니다

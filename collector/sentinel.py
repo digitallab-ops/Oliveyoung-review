@@ -285,6 +285,76 @@ CHECKS: list[Check] = [
         threshold=14, mode='max', unit='일 경과',
         hint='competitor_analysis_generator — 매주 월요일 실행',
     ),
+
+    # ── 시간대 구멍 ──
+    # 하루 합계만 보면 한 시간만 성공해도 통과한다. 실제로 2026-11-02 17시 ~
+    # 11-03 12시 약 20시간이 비었는데 파수꾼은 "400행 ✅" 로 넘어갔다.
+    # 순위는 시계열이라 놓친 시각은 영영 복구할 수 없다 — 시각 단위로 본다.
+    Check(
+        stage='rank', label='랭킹 시간대 구멍 (최근 12시간)',
+        sql="""SELECT COUNT(DISTINCT (rank_date, rank_hour)) FROM market_rankings
+               WHERE rank_date >= CURRENT_DATE - 1
+                 AND (rank_date + (rank_hour || ' hours')::interval)
+                     >= (now() AT TIME ZONE 'Asia/Seoul') - INTERVAL '12 hours'""",
+        threshold=10, unit='개 시각',
+        hint='매시간 1개씩 12개가 정상. 모자라면 그 시각 순위는 영구 유실이다',
+        detail_sql="""SELECT rank_date || ' ' || rank_hour || '시 · ' || COUNT(*) || '행' AS x
+                      FROM market_rankings
+                      WHERE rank_date >= CURRENT_DATE - 1
+                        AND (rank_date + (rank_hour || ' hours')::interval)
+                            >= (now() AT TIME ZONE 'Asia/Seoul') - INTERVAL '12 hours'
+                      GROUP BY rank_date, rank_hour ORDER BY rank_date DESC, rank_hour DESC""",
+    ),
+    Check(
+        stage='rank', label='랭킹 마지막 수집 경과',
+        sql="""SELECT COALESCE(ROUND(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'Asia/Seoul')
+                 - MAX(rank_date + (rank_hour || ' hours')::interval))) / 3600)::int, 999)
+               FROM market_rankings WHERE rank_date >= CURRENT_DATE - 2""",
+        threshold=3, mode='max', unit='시간 경과',
+        hint='매시 :10 에 돌아야 한다. 3시간 넘으면 수집기가 멈춘 것이다',
+    ),
+
+    # ── 쿠팡 (국내) ──
+    # 수집기가 0건이어도 exit 0 이라 6월 이후 리뷰가 멈춘 걸 아무도 몰랐다.
+    # 전체 점검(하루 1회)에서만 돌게 stage 를 따로 둔다 — 매시 울리면 소음이다.
+    Check(
+        stage='coupang', label='쿠팡 리뷰 신선도',
+        sql="SELECT COALESCE(CURRENT_DATE - MAX(collected_at)::date, 999) FROM coupang.reviews",
+        threshold=7, mode='max', unit='일 경과',
+        hint='coupang_pipeline — "총 0개 상품 발견" 이면 차단이거나 셀렉터가 낡은 것',
+    ),
+    Check(
+        stage='coupang', label='쿠팡 카테고리 순위 신선도',
+        sql="SELECT COALESCE(CURRENT_DATE - MAX(rank_date), 999) FROM coupang.category_rankings",
+        threshold=2, mode='max', unit='일 경과',
+        hint='coupang_rank — 하루 4회',
+    ),
+    Check(
+        stage='coupang', label='쿠팡 검색 순위 신선도',
+        sql="SELECT COALESCE(CURRENT_DATE - MAX(rank_date), 999) FROM coupang.search_rankings",
+        threshold=3, mode='max', unit='일 경과',
+        hint='coupang_rank — 키워드별 검색 순위',
+    ),
+    # 가격·평점 스냅샷은 순위 수집에 얹혀 간다. 순위는 들어오는데 이쪽만 비면
+    # 쿠팡이 페이지 구조를 바꿨다는 뜻이다(가격 파싱이나 플라이트 JSON).
+    Check(
+        stage='coupang', label='쿠팡 가격·평점 스냅샷',
+        sql="""SELECT COUNT(*) FROM coupang.price_history
+               WHERE recorded_date >= CURRENT_DATE - 1""",
+        threshold=20, unit='개 상품',
+        hint='coupang_rank 의 parse_price_area / build_rating_index — 페이지 구조 변경 의심',
+    ),
+
+    # ── 네이버 (국내) ──
+    # 검색 순위·시장 점검은 뺐다. 네이버가 쇼핑 검색 API 를 닫아(404 SE05)
+    # 되살릴 방법이 없는데, 매일 실패로 울리면 진짜 장애가 묻힌다.
+    # 수집기도 트렌드만 받도록 정리했다. 자세한 내용은 naver_collector 주석 참고.
+    Check(
+        stage='naver', label='네이버 트렌드 신선도',
+        sql="SELECT COALESCE(CURRENT_DATE - MAX(collected_at)::date, 999) FROM naver.trends",
+        threshold=3, mode='max', unit='일 경과',
+        hint='naver_collector — DataLab 쪽은 쇼핑 API 와 별개다',
+    ),
 ]
 
 

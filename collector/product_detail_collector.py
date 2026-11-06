@@ -58,6 +58,67 @@ def fetch_detail_page(goods_no: str) -> BeautifulSoup | None:
         return None
 
 
+def _won(text: str | None) -> int | None:
+    m = re.search(r'([\d,]{3,})\s*원', text or '')
+    return int(m.group(1).replace(',', '')) if m else None
+
+
+def parse_prices(soup: BeautifulSoup) -> dict:
+    """정가·판매가·할인율·단가를 한 번에 읽는다.
+
+    상세 페이지 가격 영역은 이렇게 생겼다(2026-11 확인):
+
+        price-before  32,000 원          ← 정가
+        price-area    35 %               ← 할인율
+        price__       20,500 원          ← 실제 판매가
+        price-day     (100ml 당 37,273원) ← 올리브영이 계산해 주는 단가
+
+    예전 parse_price 는 price-before 를 먼저 보고 그 값을 돌려줬다. 그래서
+    35% 세일 중인 상품도 정가로 기록돼 '가격 변동 없음' 처럼 보였다.
+
+    클래스 뒤 해시(__5az8B)는 배포마다 바뀌므로 앞부분만 보고 찾는다.
+    구조가 또 바뀌면 가격 영역 텍스트에서 숫자를 읽는 쪽으로 넘어간다.
+    """
+    out = {'price': None, 'base_price': None, 'discount_rate': None,
+           'unit_price': None, 'unit_basis': None}
+
+    base = soup.select_one('[class*="price-before"]')
+    if base:
+        out['base_price'] = _won(base.get_text(strip=True))
+
+    for el in soup.select('[class*="price"]'):
+        if re.search(r'price__', ' '.join(el.get('class') or [])):
+            out['price'] = _won(el.get_text(strip=True))
+            break
+
+    area = soup.select_one('[class*="price-area"], [class*="price-box"]')
+    if area:
+        txt = re.sub(r'\s+', ' ', area.get_text(' ', strip=True))
+        m = re.search(r'(\d{1,2})\s*%', txt)
+        if m:
+            out['discount_rate'] = int(m.group(1))
+        if out['price'] is None or out['base_price'] is None:
+            wons = [int(x.replace(',', '')) for x in re.findall(r'([\d,]{3,})\s*원', txt)]
+            wons = [w for w in wons if w >= 100]
+            if len(wons) >= 2:
+                out['base_price'] = out['base_price'] or wons[0]
+                out['price'] = out['price'] or min(wons[0], wons[1])
+            elif wons:
+                out['price'] = out['price'] or wons[0]
+
+    day = soup.select_one('[class*="price-day"]')
+    if day:
+        t = re.sub(r'\s+', ' ', day.get_text(' ', strip=True))
+        m = re.search(r'([\d,]+)\s*(ml|g|매|정|포|개)\s*당\s*([\d,]+)\s*원', t)
+        if m:
+            out['unit_price'] = int(m.group(3).replace(',', ''))
+            out['unit_basis'] = f"{m.group(1)}{m.group(2)}"
+
+    if out['price'] and not out['base_price']:   # 할인 없는 상품
+        out['base_price'] = out['price']
+    return out
+
+
 def parse_price(soup: BeautifulSoup) -> int | None:
     # 1차: 원가 (할인 적용 전 소비자가) — [class*="price-before"]
     el = soup.select_one('[class*="price-before"]')

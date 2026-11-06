@@ -100,6 +100,13 @@ def _load_page(driver: uc.Chrome, url: str, retries: int = 3) -> str:
 
 
 def fetch_brand_products(driver: uc.Chrome) -> list[dict]:
+    """[미사용] 검색 페이지의 JSON-LD 로 상품을 찾던 방식.
+
+    쿠팡이 JSON-LD 블록을 없애면서 2026-06 부터 항상 0건을 반환했다.
+    지금은 run() 이 search_rankings/category_rankings 에서 상품을 가져온다.
+    되살릴 일이 있으면 coupang_rank.fetch_search_ranking 처럼 li[data-id] 를
+    파싱해야 한다 — 그쪽은 지금도 정상 동작한다.
+    """
     """브랜드 검색으로 상품 목록 수집 — JSON-LD structured data 파싱"""
     import json
     products = {}
@@ -241,14 +248,36 @@ def run():
             existing_ids = {r['review_id'] for r in cur.fetchall()}
         print(f"기존 리뷰 {len(existing_ids)}건\n")
 
-        print(f"[상품 발견] '{BRAND_QUERY}' 검색 중...")
-        driver = _init_driver()
-        products = fetch_brand_products(driver)
-        print(f"총 {len(products)}개 상품 발견\n")
+        # 상품 목록은 순위 수집기가 이미 매일 4번 모아 둔다. 다시 검색할 이유가 없다.
+        #
+        # 원래는 검색 페이지의 JSON-LD 를 읽었는데, 쿠팡이 그 블록을 없애면서
+        # 2026-06 부터 "총 0개 상품 발견"으로 조용히 끝났다(exit 0 이라 알림도 없었다).
+        # search_rankings 를 쓰면 스크래핑 한 번 줄고 차단 위험도 낮아진다.
+        print("[상품 목록] 최근 순위 수집분에서 자사 상품을 가져온다...")
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT product_id, MAX(product_name) AS product_name
+                FROM (
+                    SELECT product_id, product_name FROM search_rankings
+                    WHERE is_ours AND rank_date >= CURRENT_DATE - 14
+                    UNION ALL
+                    SELECT product_id, product_name FROM category_rankings
+                    WHERE is_ours AND rank_date >= CURRENT_DATE - 14
+                ) t
+                GROUP BY product_id
+            """)
+            products = [{'product_id': r['product_id'],
+                         'product_name': r['product_name'] or '',
+                         'vendor_item_id': None, 'rating': None, 'review_count': None}
+                        for r in cur.fetchall()]
+        print(f"총 {len(products)}개 상품\n")
 
         if not products:
-            print("상품을 찾지 못했습니다. 종료.")
-            return
+            # 순위 수집까지 멈췄다는 뜻이다. 조용히 끝내면 안 된다.
+            print("자사 상품이 하나도 없다 — 순위 수집(coupang_rank)이 멈췄는지 확인할 것.")
+            sys.exit(6)
+
+        driver = _init_driver()
 
         with conn.cursor() as cur:
             for p in products:

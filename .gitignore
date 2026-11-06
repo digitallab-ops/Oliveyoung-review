@@ -1,4 +1,10 @@
+# .env 만 막으면 .env.bak / .env.local 같은 사본이 그대로 뚫린다.
+# 사본에도 DB 비밀번호·API 키가 전부 들어 있고, 리모트 하나는 공개 레포다.
+# add -A 한 번이면 올라가므로 패턴으로 막는다. 예시 파일만 예외.
 .env
+.env.*
+!.env.example
+*.bak
 __pycache__/
 *.pyc
 *.db

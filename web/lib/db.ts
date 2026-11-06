@@ -44,18 +44,28 @@ export async function getStats(): Promise<Stats> {
       -- reviews 를 두 번 풀스캔하고 있었다. 서브쿼리 COUNT(*) 와 아래 집계가
       -- 같은 테이블을 각각 훑는다. FROM 이 reviews 이므로 COUNT(*) 하나면 된다.
       COUNT(*)::int                                                AS total_reviews,
-      (SELECT COUNT(*) FROM products)::int                         AS total_products,
+      (SELECT COUNT(*) FROM products WHERE is_competitor = false)::int AS total_products,
       ROUND(AVG(r.score)::numeric, 2)                              AS avg_score,
       COUNT(*) FILTER (WHERE r.score = 5)                         AS five_star_count,
       COUNT(*) FILTER (WHERE r.is_repurchase = TRUE)              AS repurchase_count,
       MAX(r.collected_at)                                          AS last_updated
+    -- 헤드라인 지표에 경쟁사 리뷰가 섞여 있었다. 16.9만 건 중 자사는 4.5만 건뿐이라
+    -- "실구매 고객 167,871명" 이 사실상 시장 전체 수치였다. 자사 기준으로 맞춘다.
+    -- 경쟁사 비교는 경쟁사 탭과 시장 랭킹에서 따로 본다.
     FROM reviews r
+    JOIN products p ON p.goods_no = r.goods_no
+    WHERE p.is_competitor = false
   `)
 
   const [[rankRow], [promoRow]] = await Promise.all([
     query<{ ts: string | null }>(`
+      -- rank_date/rank_hour 는 KST 로 저장된다(rank_collector 가 now_kst 사용).
+      -- 그런데 여기서 "Z"(UTC) 를 붙여 내보내 브라우저가 9시간 미래로 읽었고,
+      -- 수집이 멈춰도 헤더가 9시간 동안 "방금 전" 으로 보였다.
+      -- KST 로 해석한 뒤 UTC 로 변환해야 실제 시각이 된다.
       SELECT to_char(
-        rank_date + (rank_hour || ' hours')::interval,
+        ((rank_date + (rank_hour || ' hours')::interval) AT TIME ZONE 'Asia/Seoul')
+          AT TIME ZONE 'UTC',
         'YYYY-MM-DD"T"HH24:MI:SS"Z"'
       ) AS ts
       FROM market_rankings
@@ -130,7 +140,13 @@ const SUFFIX_FILTER = `
 `
 
 export async function getInsights(goodsNo?: string): Promise<Insights> {
-  const where = goodsNo ? 'WHERE r.goods_no = $1' : ''
+  // 상품을 지정하면 그 상품만 본다(챗봇·MCP 가 경쟁사도 조회한다).
+  // 지정하지 않은 '전체' 집계는 자사 기준이어야 한다 — 화면의 키워드·피부타입
+  // 분포가 경쟁사 리뷰까지 합산돼 자사 지표처럼 보이고 있었다.
+  const where = goodsNo
+    ? 'WHERE r.goods_no = $1'
+    : `WHERE EXISTS (SELECT 1 FROM products p
+                     WHERE p.goods_no = r.goods_no AND p.is_competitor = false)`
   const params = goodsNo ? [goodsNo] : []
 
   // 긍정 키워드 (★4-5)
@@ -165,9 +181,10 @@ export async function getInsights(goodsNo?: string): Promise<Insights> {
 
   // 피부타입 분포
   const skinRows = await query<{ skin_type: string; cnt: string }>(
+    // goodsNo 가 있으면 WHERE 가 두 번 나와 문법 오류가 났다(위 두 쿼리와 달리
+    // 접속사 처리가 빠져 있었다). 챗봇의 '상품별 인사이트' 가 늘 실패하던 원인.
     `SELECT skin_type, COUNT(*) AS cnt FROM reviews r
-     ${where}
-     WHERE skin_type IS NOT NULL AND skin_type != ''
+     ${where ? where + ' AND' : 'WHERE'} skin_type IS NOT NULL AND skin_type != ''
      GROUP BY skin_type ORDER BY cnt DESC LIMIT 6`,
     params
   )
@@ -187,6 +204,7 @@ export async function getInsights(goodsNo?: string): Promise<Insights> {
               ORDER BY r2.created_at DESC LIMIT 1) AS sample
       FROM products p
       JOIN reviews r ON p.goods_no = r.goods_no
+      WHERE p.is_competitor = false     -- 안 그러면 '최다 리뷰 상품'이 경쟁사로 잡힌다
       GROUP BY p.goods_name, p.goods_no
       ORDER BY cnt DESC LIMIT 1
     `)
@@ -286,11 +304,18 @@ export async function getReviews(opts: {
 }
 
 export async function getScoreDist(goodsNo?: string): Promise<ScoreDist[]> {
-  const where = goodsNo ? 'WHERE goods_no = $1' : ''
+  // getInsights 와 같은 기준 — 상품 지정 시엔 그 상품, 전체는 자사만.
+  const where = goodsNo
+    ? 'WHERE goods_no = $1'
+    : `WHERE EXISTS (SELECT 1 FROM products p
+                     WHERE p.goods_no = reviews.goods_no AND p.is_competitor = false)`
   const params = goodsNo ? [goodsNo] : []
   const rows = await query<{ score: number; cnt: string }>(
-    `SELECT score, COUNT(*) AS cnt FROM reviews ${where}
-     WHERE score IS NOT NULL GROUP BY score ORDER BY score DESC`,
+    // getInsights 와 같은 WHERE 중복 버그. 지금은 호출부가 인자를 안 넘겨
+    // 드러나지 않았을 뿐이라, 쓰이기 시작하면 바로 깨진다.
+    `SELECT score, COUNT(*) AS cnt FROM reviews
+     ${where ? where + ' AND' : 'WHERE'} score IS NOT NULL
+     GROUP BY score ORDER BY score DESC`,
     params
   )
   const total = rows.reduce((s, r) => s + Number(r.cnt), 0)
@@ -315,6 +340,9 @@ export async function getProductStats(): Promise<ProductStats[]> {
            SUM(CASE WHEN r.score = 5 THEN 1 ELSE 0 END) AS five_star_cnt
     FROM products p
     LEFT JOIN reviews r ON p.goods_no = r.goods_no
+    -- 경쟁사까지 넣어 2,137행(약 547KB)을 매 렌더마다 내려보내고 있었다.
+    -- 화면은 '상세 통계' 한 곳에서만 쓰는 자사 지표다.
+    WHERE p.is_competitor = false
     GROUP BY p.goods_no, p.goods_name, p.first_seen ORDER BY review_cnt DESC
   `)
 }
@@ -335,6 +363,9 @@ export async function getTimeSeriesWeekly(from: string, to: string): Promise<Tim
     WHERE created_at IS NOT NULL AND LENGTH(created_at) >= 10
       AND created_at::date >= $1::date
       AND created_at::date < $2::date
+      -- 월별 추이도 자사 기준으로 본다(헤드라인 지표와 같은 모수여야 한다)
+      AND EXISTS (SELECT 1 FROM products p
+                  WHERE p.goods_no = reviews.goods_no AND p.is_competitor = false)
     GROUP BY DATE_TRUNC('week', created_at::date)
     ORDER BY DATE_TRUNC('week', created_at::date)
   `, [from, to])
@@ -361,6 +392,9 @@ export async function getTimeSeries(): Promise<TimeSeriesPoint[]> {
       )                                   AS neg_pct
     FROM reviews
     WHERE created_at IS NOT NULL AND LENGTH(created_at) >= 7
+      -- 헤드라인 지표와 같은 모수(자사)로 맞춘다
+      AND EXISTS (SELECT 1 FROM products p
+                  WHERE p.goods_no = reviews.goods_no AND p.is_competitor = false)
     GROUP BY month
     ORDER BY month
   `)
@@ -573,8 +607,9 @@ export async function getProductRankingsByMode(): Promise<{
 
     const lastCollected: Record<string, string> = {}
     for (const r of lastRows) {
-      const kstH = (Number(r.rank_hour) + 9) % 24
-      lastCollected[r.category_name] = `${r.last_date} ${kstH}시`
+      // rank_hour 는 이미 KST 다. +9 는 수집기가 UTC 로 저장하던 시절의 잔재로,
+      // 2026-06 에 수집기가 KST 로 바뀐 뒤에도 남아 미래 시각을 표시했다.
+      lastCollected[r.category_name] = `${r.last_date} ${Number(r.rank_hour)}시`
     }
 
     return {
@@ -1225,7 +1260,15 @@ export async function getPromoInsightHistory(month: string): Promise<{ id: numbe
   }
 }
 
-export async function getProductTopicInsights(): Promise<ProductTopicData[]> {
+/**
+ * allowGenerate 를 둔 이유:
+ *   page.tsx 주석은 "렌더 경로에서는 AI 를 생성하지 않는다" 인데 이 함수만
+ *   예외였다. 캐시가 비면 렌더 중에 상품 5개를 순차로 LLM 호출하고 DB 에까지
+ *   썼다. 게다가 실패(null)는 캐시하지 않아, 장애 중에는 revalidate 주기(5분)
+ *   마다 5회가 계속 재과금됐다.
+ *   렌더는 읽기만 하고, 생성은 수집 직후 /api/revalidate 워밍업에서만 한다.
+ */
+export async function getProductTopicInsights(allowGenerate = false): Promise<ProductTopicData[]> {
   try {
     const topProducts = await query<{ goods_no: string; goods_name: string }>(`
       SELECT r.goods_no, p.goods_name
@@ -1249,7 +1292,7 @@ export async function getProductTopicInsights(): Promise<ProductTopicData[]> {
     const cachedMap = new Map(cached.map(r => [r.goods_no, JSON.parse(r.topics_json)]))
     const missing = topProducts.filter(p => !cachedMap.has(p.goods_no))
 
-    if (missing.length > 0) {
+    if (allowGenerate && missing.length > 0) {
       const { generateProductTopicInsights } = await import('./ai')
       for (const prod of missing) {
         const reviewRows = await query<{ content: string }>(`
@@ -1492,7 +1535,11 @@ export async function getUnitPriceComparison(): Promise<UnitPriceGroup[]> {
 // ─────────────────────────────────────────
 
 /** 최근 N일 내 가격이 변한 상품. 경쟁사 인하는 프로모션 대응 타이밍 신호다. */
-export async function getPriceChanges(days = 14, minPct = 5): Promise<PriceChangeEntry[]> {
+// 기본값이 14일이었는데 그 창 안에서는 늘 0건이라 섹션이 비어 있었다.
+// 가격 수집이 하루 100개씩 도는 탓에 한 상품이 다시 찍히기까지 약 22일 걸린다.
+// 즉 14일 안에는 비교할 점이 두 개가 안 생긴다 — 가격이 안 변한 게 아니라
+// 못 본 것이다. 수집이 촘촘해지면 이 값을 다시 줄여도 된다.
+export async function getPriceChanges(days = 90, minPct = 5): Promise<PriceChangeEntry[]> {
   try {
     const rows = await query<{
       goods_no: string; goods_name: string; is_competitor: boolean
@@ -1913,14 +1960,14 @@ export async function getRankingChanges() {
       SELECT DISTINCT ON (category_name, goods_no)
         category_name, goods_no, goods_name, rank_position
       FROM market_rankings
-      WHERE rank_date = CURRENT_DATE
+      WHERE rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
       ORDER BY category_name, goods_no, rank_hour DESC
     ),
     yesterday AS (
       SELECT DISTINCT ON (category_name, goods_no)
         category_name, goods_no, rank_position
       FROM market_rankings
-      WHERE rank_date = CURRENT_DATE - INTERVAL '1 day'
+      WHERE rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '1 day'
       ORDER BY category_name, goods_no, rank_hour DESC
     )
     SELECT
@@ -1963,14 +2010,14 @@ export async function getTopMovers() {
       SELECT DISTINCT ON (category_name, goods_no)
         category_name, goods_no, goods_name, rank_position AS rank_today
       FROM market_rankings
-      WHERE rank_date = CURRENT_DATE
+      WHERE rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
       ORDER BY category_name, goods_no, rank_hour DESC
     ),
     week_ago AS (
       SELECT DISTINCT ON (category_name, goods_no)
         category_name, goods_no, rank_position AS rank_7d_ago
       FROM market_rankings
-      WHERE rank_date = CURRENT_DATE - INTERVAL '7 days'
+      WHERE rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '7 days'
       ORDER BY category_name, goods_no, rank_hour DESC
     )
     SELECT
@@ -2006,7 +2053,7 @@ export async function getCompetitiveSummary() {
       SELECT DISTINCT ON (category_name, goods_no)
         category_name, goods_no, goods_name, rank_position
       FROM market_rankings
-      WHERE rank_date = CURRENT_DATE
+      WHERE rank_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
       ORDER BY category_name, goods_no, rank_hour DESC
     ),
     our_best AS (
@@ -2135,9 +2182,38 @@ export async function getDailyBrief(): Promise<{ brief_date: string; brief_text:
       brief_text,
       to_char(generated_at AT TIME ZONE 'Asia/Seoul', 'HH24:MI')  AS generated_at
     FROM daily_briefs
-    WHERE brief_date = CURRENT_DATE
+    WHERE brief_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
     ORDER BY generated_at DESC
     LIMIT 1
   `)
   return rows[0] ?? null
+}
+
+/**
+ * 가격 이력 내려받기용 평평한 표.
+ *
+ * 화면의 '가격 변동' 섹션은 처음값과 마지막값만 보여 준다. 중간 과정을
+ * 보려면 원본이 필요하다는 요청이 있어 통째로 내보낸다.
+ *
+ * 용량(volume)은 '50ml', '20g', '50ml / 20ml' 같은 텍스트라 앞 숫자만 뽑아
+ * 단가를 계산한다. ml 과 g 이 섞여 있어 '100단위당' 으로 적는다.
+ */
+export async function getPriceHistoryExport(days = 180): Promise<Record<string, string | number | null>[]> {
+  return query(`
+    SELECT CASE WHEN p.is_competitor THEN '경쟁사' ELSE '자사' END AS "구분",
+           p.goods_name                                            AS "상품명",
+           ph.recorded_date::text                                  AS "날짜",
+           ph.price                                                AS "가격",
+           p.volume                                                AS "용량",
+           CASE WHEN substring(p.volume from '[0-9]+[.]?[0-9]*') IS NOT NULL
+                 AND substring(p.volume from '[0-9]+[.]?[0-9]*')::numeric > 0
+                THEN ROUND(ph.price * 100.0
+                     / substring(p.volume from '[0-9]+[.]?[0-9]*')::numeric)
+           END                                                     AS "100단위당",
+           p.goods_no                                              AS "상품번호"
+    FROM price_history ph
+    JOIN products p USING (goods_no)
+    WHERE ph.recorded_date >= CURRENT_DATE - $1::int
+    ORDER BY p.is_competitor, p.goods_name, ph.recorded_date
+  `, [days])
 }

@@ -24,7 +24,7 @@ except ImportError:
 
 from bs4 import BeautifulSoup
 from db.schema import get_conn, init_db
-from collector.product_detail_collector import parse_price, HEADERS, DETAIL_URL
+from collector.product_detail_collector import parse_prices, HEADERS, DETAIL_URL
 
 BATCH_SIZE   = 100
 MIN_DELAY    = 15.0
@@ -63,7 +63,9 @@ def _fetch_price(goods_no: str):
             return None, "차단됨"
 
         soup = BeautifulSoup(r.text, 'html.parser')
-        return parse_price(soup), "OK"
+        # 정가 하나가 아니라 정가·판매가·할인율·단가를 모두 돌려준다.
+        d = parse_prices(soup)
+        return (d if (d.get('price') or d.get('base_price')) else None), "OK"
     except Exception as e:
         return None, f"오류: {e}"
 
@@ -126,18 +128,37 @@ def run(limit: int = BATCH_SIZE):
                 price, status = _fetch_price(goods_no)
 
             if price:
+                d = price if isinstance(price, dict) else {}
+                sale = d.get('price')
+                base = d.get('base_price') or (price if not d else None)
+                # products.price 는 예전부터 정가를 담아 왔다. 기존 화면·쿼리가
+                # 그 값을 쓰고 있어 의미를 바꾸지 않는다. 세일가는 이력에만 쌓는다.
+                keep = base or sale
                 with conn.cursor() as cur:
                     cur.execute("""
                         UPDATE products
                         SET price = %s, detail_fetched_at = CURRENT_DATE
                         WHERE goods_no = %s
-                    """, (price, goods_no))
+                    """, (keep, goods_no))
                     cur.execute("""
-                        INSERT INTO price_history (goods_no, price, recorded_date)
-                        VALUES (%s, %s, CURRENT_DATE)
-                        ON CONFLICT (goods_no, recorded_date) DO NOTHING
-                    """, (goods_no, price))
-                print(f"  ({i+1}/{len(products)}) {label} → {price:,}원", flush=True)
+                        INSERT INTO price_history
+                            (goods_no, price, sale_price, base_price,
+                             discount_rate, unit_price, unit_basis, recorded_date)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s,
+                                (now() AT TIME ZONE 'Asia/Seoul')::date)
+                        ON CONFLICT (goods_no, recorded_date) DO UPDATE SET
+                            price         = EXCLUDED.price,
+                            sale_price    = EXCLUDED.sale_price,
+                            base_price    = EXCLUDED.base_price,
+                            discount_rate = EXCLUDED.discount_rate,
+                            unit_price    = EXCLUDED.unit_price,
+                            unit_basis    = EXCLUDED.unit_basis
+                    """, (goods_no, keep, sale, base, d.get('discount_rate'),
+                          d.get('unit_price'), d.get('unit_basis')))
+                pct = d.get('discount_rate')
+                extra = f" (정가 {base:,}원, {pct}%↓)" if pct and sale else ""
+                shown = sale or keep
+                print(f"  ({i+1}/{len(products)}) {label} → {shown:,}원{extra}", flush=True)
                 success += 1
             else:
                 # 페이지 정상 로드됐으나 가격 없음 → detail_fetched_at만 갱신 (무한 재시도 방지)

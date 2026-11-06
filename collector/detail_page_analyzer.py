@@ -530,10 +530,15 @@ def run(goods_no: str | None = None, do_all: bool = False,
         print(f"[예상] 상품 {len(targets)}개 · 패널 {panels:,}개 · 약 ${cost:,.2f} "
               f"(상한 ${max_cost:,.2f})")
         if cost > max_cost:
-            print(f"  상한 초과 — 돌리지 않는다. 대상이 왜 이렇게 많은지 "
-                  f"확인하고 수동으로 --yes 로 돌려라.")
+            # 여기서 조용히 return 하면 exit 0 이라 슬랙에 "완료" 가 나간다.
+            # 실제로는 한 건도 분석하지 않았는데 2주 내내 정상으로 보였다
+            # (2026-10-28: 104개 대기, $8.36 이 $5 상한에 막혔는데 "변경 없음").
+            # 비정상 종료로 끝내야 사람이 알아차린다.
+            print(f"  상한 초과 — 한 건도 분석하지 않았다. 대기 {len(targets)}개가 "
+                  f"그대로 쌓인다.")
+            print(f"  상한을 올리거나(--max-cost), 수동으로 --yes 를 줘서 돌려야 한다.")
             conn.close()
-            return
+            sys.exit(3)
     elif not budget_gate([g for g, _ in targets], yes):
         conn.close()
         return
@@ -558,6 +563,9 @@ def run(goods_no: str | None = None, do_all: bool = False,
         print(f"=== 완료 (실패 {len(failed)}개) ===")
         for g, s_ in failed:
             print(f"  {g}  {s_}")
+        # 실패분은 다음 실행에서 다시 잡히지만, 매번 조용히 넘어가면
+        # 영영 안 되는 상품이 있어도 모른다.
+        sys.exit(4)
     else:
         print("=== 완료 ===")
 

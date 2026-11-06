@@ -93,7 +93,10 @@ terms_all = _appeal_terms(rows)
 appeal_opts = [t for t, c in terms_all.most_common(60)
                if len(t) >= 2 and c >= 3][:36]
 by_type_terms = {}
-for t in {r['ptype'] for r in rows}:
+# set 순회 순서는 파이썬 해시 시드에 따라 실행마다 달라진다. 그 탓에 내용이
+# 같아도 data.json 의 키 순서가 바뀌어 git 이 매번 '변경됨' 으로 잡았고,
+# 2주 주기 슬랙의 "변경 N건" 이 늘 가짜였다. 정렬해서 순서를 고정한다.
+for t in sorted({r['ptype'] for r in rows}):
     rs = [r for r in rows if r['ptype'] == t]
     if len({r['goods_no'] for r in rs}) < 5 or t == '기타':
         continue

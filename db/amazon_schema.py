@@ -9,8 +9,12 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 def get_conn():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor,
-                            options="-c statement_timeout=0 -c search_path=amazon")
+    # 타임존을 KST 로 맞추는 이유와 방식은 db/schema.py 의 _set_kst 참고.
+    # (풀러가 options 의 timezone 을 무시해서 접속 뒤 SET 으로 건다)
+    from db.schema import _set_kst
+    return _set_kst(psycopg2.connect(
+        DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=15,
+        options="-c statement_timeout=0 -c search_path=amazon"))
 
 
 def init_db(conn=None):

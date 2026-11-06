@@ -30,7 +30,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SWIT_WEBHOOK = os.getenv('SWIT_WEBHOOK_URL', '')
+# SWIT 로 알림을 보내던 시절의 이름이 남아 있었다. .env 에는 SLACK_WEBHOOK_URL 만
+# 있어서 send_alert 가 전부 "[알림 미설정]" 만 찍고 사라졌다 — 올영픽 월 교체 감지,
+# dispCatNo 변경 같은 중요한 알림 59건이 아무 데도 가지 않았다.
+# 예전 이름도 계속 받아 준다(환경에 따라 아직 쓰고 있을 수 있다).
+SWIT_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL', '') or os.getenv('SWIT_WEBHOOK_URL', '')
 
 
 def revalidate_vercel():
@@ -71,12 +75,13 @@ def send_alert(text: str):
             method='POST',
         )
         urllib.request.urlopen(req, timeout=10)
-        print('  스윗 알림 전송 완료')
+        print('  슬랙 알림 전송 완료')
     except Exception as e:
-        print(f'  스윗 알림 전송 실패: {e}')
+        print(f'  슬랙 알림 전송 실패: {e}')
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from db.schema import get_conn, init_db
+from collector.naming import dedupe_brand
 
 BASE_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
@@ -178,7 +183,7 @@ def parse_prd_info(html: str) -> list[dict]:
         goods_no = m.group(1)
         seen.add(goods_no)
         name_el = item.select_one('.tx_name, .prd_name')
-        name = name_el.get_text(strip=True) if name_el else ''
+        name = dedupe_brand(name_el.get_text(strip=True) if name_el else '')
         results.append({'goods_no': goods_no, 'name': name, 'category_name': None})
     return results
 
@@ -219,7 +224,7 @@ def fetch_olivepick(session, catno: str = OLIVEPICK_CAT) -> list[dict]:
         goods_no = m.group(1)
         seen.add(goods_no)
         name_el = prd.select_one('.tx_name, .prd_name')
-        name = name_el.get_text(strip=True) if name_el else ''
+        name = dedupe_brand(name_el.get_text(strip=True) if name_el else '')
         results.append({
             'goods_no': goods_no,
             'name': name,
@@ -266,7 +271,7 @@ def fetch_hotdeal_page(session, today_str: str, flt_condition: str, page_idx: in
         if name_el and name_el.name == 'img':
             name = name_el.get('alt', '')
         elif name_el:
-            name = name_el.get_text(strip=True)
+            name = dedupe_brand(name_el.get_text(strip=True))
         else:
             link = li.select_one('a[href*="goodsNo"]')
             name = link.get('data-ref-goodsnm', '') if link else ''

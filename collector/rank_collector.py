@@ -21,6 +21,7 @@ load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from db.schema import get_conn, init_db, upsert_competitor_products
+from collector.naming import dedupe_brand
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -240,7 +241,7 @@ def fetch_ranking(disp_cat: str, flt_cat: str | None) -> list[dict]:
                 goods_no = m.group(1)
                 seen.add(goods_no)
                 name_el = item.select_one('.tx_name, .prd_name, strong.tx_name, .name')
-                name = name_el.get_text(strip=True) if name_el else ''
+                name = dedupe_brand(name_el.get_text(strip=True) if name_el else '')
 
                 # 소비자가 추출 (원가 우선 → 판매가 fallback)
                 price = None

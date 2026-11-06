@@ -6,5 +6,10 @@ python-dotenv==1.0.1
 undetected-chromedriver>=3.5.5
 selenium>=4.44.0
 pytrends>=4.9.2
-anthropic>=0.39.0
+# openai 가 빠져 있었다. summarizer / coupang_summarizer / daily_brief_generator /
+# naver_collector / detail_page_analyzer 5개가 import 하므로, 이 목록만 보고
+# 새로 설치하면 전부 ImportError 로 죽는다.
+openai>=2.0.0
+# anthropic 은 코드 어디에서도 import 하지 않는다(확인함). 쓰게 되면 되살릴 것.
+# anthropic>=0.39.0
 Pillow>=10.0.0

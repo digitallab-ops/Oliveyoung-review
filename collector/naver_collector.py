@@ -1,3 +1,17 @@
+"""네이버 데이터 수집 — 현재는 DataLab 검색 트렌드만 받는다.
+
+쇼핑 검색(search/shop.json)은 2026-08-01 부터 네이버가 닫았다.
+키 문제가 아니다 — 같은 키로 블로그 검색은 200 이 오고, 쇼핑만
+`404 SE05 존재하지 않는 검색 api` 가 온다. 우리 쪽에서 고칠 방법이 없다.
+
+그래서 검색 순위(search_ranks)와 시장 수집(market_items)은 떼어 냈다.
+마지막 데이터는 2026-07-30/31 이고, 화면에서도 뺐다 — 3개월 지난 값이
+최신처럼 보이는 게 제일 나쁘다.
+
+DataLab 트렌드는 별개 API 라 지금도 정상이다. 키워드 수요 추이는 계속 쌓인다.
+쇼핑 API 가 다시 열리면 search_shopping / save_search_ranks / save_market_items
+가 아래에 그대로 남아 있으니 run() 에 단계만 되살리면 된다.
+"""
 import os
 import re
 import sys
@@ -18,7 +32,20 @@ MODEL = 'gpt-4o-mini'
 NAVER_ID     = os.environ["NAVER_CLIENT_ID"]
 NAVER_SECRET = os.environ["NAVER_CLIENT_SECRET"]
 
+# NAVER API HUB 로 이관됐다(2026-06-25 개시, 구 개발자센터 키는 2027-06-30 까지).
+# 주소와 인증 헤더가 둘 다 바뀌었다 — 구 키/구 헤더로는 401 이 난다.
+#   구: openapi.naver.com        + X-Naver-Client-Id / -Secret
+#   신: naverapihub.apigw.ntruss.com + X-NCP-APIGW-API-KEY-ID / -KEY
+HUB_BASE = "https://naverapihub.apigw.ntruss.com"
+
 _HEADERS = {
+    "X-NCP-APIGW-API-KEY-ID": NAVER_ID,
+    "X-NCP-APIGW-API-KEY":    NAVER_SECRET,
+}
+
+# 구 개발자센터 헤더 — 쇼핑 검색을 되살릴 일이 있으면 쓸 수 있게 남겨 둔다.
+# (쇼핑 검색 API 자체가 2026-07-31 에 종료돼 지금은 쓸 데가 없다)
+_LEGACY_HEADERS = {
     "X-Naver-Client-Id":     NAVER_ID,
     "X-Naver-Client-Secret": NAVER_SECRET,
 }
@@ -76,7 +103,7 @@ def fetch_trends(keywords: list) -> list:
     }
     try:
         r = requests.post(
-            "https://openapi.naver.com/v1/datalab/search",
+            f"{HUB_BASE}/search-trend/v1/search",
             headers={**_HEADERS, "Content-Type": "application/json"},
             json=payload,
             timeout=15,
@@ -90,33 +117,45 @@ def fetch_trends(keywords: list) -> list:
 
 def search_shopping(query: str, display: int = 40) -> list:
     try:
+        # 이 API 는 2026-07-31 에 종료됐다(공식 대체 없음). 호출부도 없다.
+        # 구 개발자센터 헤더를 쓰던 함수라 그대로 남겨 둔다 — Hub 헤더로는 어차피 안 된다.
         r = requests.get(
             "https://openapi.naver.com/v1/search/shop.json",
-            headers=_HEADERS,
+            headers=_LEGACY_HEADERS,
             params={"query": query, "display": display, "sort": "sim"},
             timeout=10,
         )
         r.raise_for_status()
         return r.json().get("items", [])
     except Exception as e:
+        # 2026-08-01 부터 전 질의가 404 인데도 빈 리스트만 돌려줘서
+        # "시장 0개" 로 조용히 끝났다. 실패를 세어 두고 run() 이 종료 코드에
+        # 반영한다 — 그래야 슬랙과 작업 스케줄러가 장애를 본다.
+        globals()['_SHOP_ERRORS'] = globals().get('_SHOP_ERRORS', 0) + 1
         print(f"  쇼핑 검색 오류 ({query}): {e}")
         return []
 
 
 # ── DB 저장 ──────────────────────────────────────────────────────────────────
 
-def save_trends(conn, results: list) -> int:
+def save_trends(conn, results: list, time_unit: str = 'week', scale: float = 1.0) -> int:
+    """지수를 저장한다.
+
+    time_unit 으로 계열을 나누는 이유는 db/naver_schema.py 주석 참고 —
+    요청 범위가 다르면 같은 날짜도 숫자가 달라져서 섞으면 안 된다.
+    scale 은 키워드를 6개 이상 볼 때 기준 키워드로 맞추기 위한 보정값이다.
+    """
     count = 0
     with conn.cursor() as cur:
         for group in results:
             kw = group["title"]
             for pt in group.get("data", []):
-                period = pt["period"][:10]
                 cur.execute(
-                    """INSERT INTO trends (keyword, period, ratio)
-                       VALUES (%s, %s, %s)
-                       ON CONFLICT (keyword, period) DO UPDATE SET ratio = EXCLUDED.ratio""",
-                    (kw, period, pt["ratio"]),
+                    """INSERT INTO trends (keyword, period, ratio, time_unit)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (keyword, period, time_unit)
+                       DO UPDATE SET ratio = EXCLUDED.ratio""",
+                    (kw, pt["period"][:10], pt["ratio"] * scale, time_unit),
                 )
                 count += 1
     return count
@@ -211,6 +250,15 @@ def generate_and_save_insight(conn):
         print("  데이터 없음 — 스킵")
         return
 
+    # 쇼핑 API 가 2026-08-01 부터 404 라 search_ranks/market_items 가 비었는데도
+    # 트렌드만으로 "검색 노출 현황", "경쟁사 시장" 4개 섹션을 쓰라는 프롬프트가
+    # 그대로 나갔다. 근거 없는 문장이 매일 DB 에 쌓인다(환각).
+    # 돈 문제가 아니라 신뢰 문제라, 입력이 비면 아예 만들지 않는다.
+    if not own_ranks and not market_summary:
+        print("  검색 순위·시장 데이터가 모두 비었다 — 인사이트를 만들지 않는다")
+        print("  (네이버 쇼핑 API 응답을 먼저 확인할 것)")
+        return
+
     trend_text = "\n".join(
         f"  {r['keyword']} ({r['period']}): {r['ratio']}"
         for r in trend_rows[-30:]
@@ -272,64 +320,20 @@ def generate_and_save_insight(conn):
 # ── 메인 ─────────────────────────────────────────────────────────────────────
 
 def run():
-    print("=== 네이버 쇼핑 데이터 수집 시작 ===\n")
+    print("=== 네이버 DataLab 검색 트렌드 수집 ===\n")
     conn = get_conn()
     conn.autocommit = True
     try:
         init_db(conn=conn)
 
-        # 1. DataLab 트렌드
-        print("[1/4] DataLab 검색 트렌드...")
+        # DataLab 검색 트렌드 — 이 수집기에 남은 유일한 단계다.
+        print("[1/1] DataLab 검색 트렌드...")
         results = fetch_trends(TREND_KEYWORDS)
-        if results:
-            n = save_trends(conn, results)
-            print(f"  {n}개 데이터 포인트 저장")
-        else:
-            print("  데이터 없음")
-        time.sleep(1)
-
-        # 2. 자사 검색 순위 (브랜드 채널 분포)
-        print("[2/4] 자사 제품 검색 노출 순위...")
-        for query in OWN_QUERIES:
-            items = search_shopping(query, display=40)
-            if items:
-                save_search_ranks(conn, query, items, query_type='brand')
-                ours = [i+1 for i, it in enumerate(items)
-                        if _is_ours(_clean(it.get("title","")), it.get("mallName",""))]
-                print(f"  '{query}': 자사 {len(ours)}개 노출, 위치={ours[:3]}")
-            time.sleep(0.5)
-
-        # 3. 경쟁사 시장 + 카테고리 경쟁 순위
-        print("[3/4] 경쟁사 시장 수집...")
-        for cat in CATEGORIES:
-            # 카테고리 일반 검색 — search_ranks에도 저장 (경쟁 순위 파악용)
-            cat_items = search_shopping(cat, display=40)
-            if cat_items:
-                save_search_ranks(conn, cat, cat_items, query_type='category')
-                ours_pos = [i+1 for i, it in enumerate(cat_items)
-                            if _is_ours(_clean(it.get("title","")), it.get("mallName",""))]
-                if ours_pos:
-                    print(f"  [경쟁순위] '{cat}': 자사 {ours_pos[:3]}위")
-            time.sleep(0.3)
-
-            # 시장 현황용 수집 (경쟁사 포함 전체)
-            all_items = list(cat_items)
-            for brand in COMPETITORS[:5]:
-                all_items += search_shopping(f"{brand} {cat}", display=20)
-                time.sleep(0.3)
-            seen, deduped = set(), []
-            for it in all_items:
-                key = (_clean(it.get("title",""))[:50].lower(), it.get("mallName","").lower())
-                if key not in seen:
-                    seen.add(key)
-                    deduped.append(it)
-            save_market_items(conn, cat, deduped)
-            print(f"  {cat}: 시장 {len(deduped)}개")
-            time.sleep(0.5)
-
-        # 4. AI 인사이트
-        print("[4/4] AI 인사이트...")
-        generate_and_save_insight(conn)
+        if not results:
+            print("  데이터 없음 — DataLab 응답을 확인할 것")
+            sys.exit(5)          # finally 에서 conn 은 닫힌다
+        n = save_trends(conn, results)
+        print(f"  {n}개 데이터 포인트 저장")
 
         print("\n=== 완료 ===")
     finally:
