@@ -18,11 +18,18 @@ import logging
 from collections import deque
 from typing import AsyncGenerator
 
+from dotenv import load_dotenv
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from openai import AsyncOpenAI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+# 이 파일만 .env 를 안 읽고 os.environ 에만 기대고 있었다. 그래서 환경변수를
+# 미리 깔아 둔 셸에서만 뜨고, 서버가 재부팅되면 되살아나지 못했다.
+# 레포의 다른 모듈처럼 스스로 읽게 한다. 경로를 명시하는 이유는 작업 디렉터리가
+# slack-bot/ 일 수도 있어서다. 이미 환경에 있는 값은 덮어쓰지 않는다(Render 배포 고려).
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
