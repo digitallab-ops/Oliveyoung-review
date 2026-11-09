@@ -151,10 +151,15 @@ def save_trends(conn, results: list, time_unit: str = 'week', scale: float = 1.0
             kw = group["title"]
             for pt in group.get("data", []):
                 cur.execute(
+                    # collected_at 도 같이 갱신해야 한다. 주간 수집은 최근 8주를
+                    # 받는데 그 기간은 대개 이미 들어 있어서, 갱신만 하면
+                    # collected_at 이 첫 저장일에 멈춘다. 그러면 매일 정상으로
+                    # 돌고 있는데도 파수꾼이 '며칠째 수집 없음' 으로 읽는다.
                     """INSERT INTO trends (keyword, period, ratio, time_unit)
                        VALUES (%s, %s, %s, %s)
                        ON CONFLICT (keyword, period, time_unit)
-                       DO UPDATE SET ratio = EXCLUDED.ratio""",
+                       DO UPDATE SET ratio        = EXCLUDED.ratio,
+                                     collected_at = CURRENT_DATE""",
                     (kw, pt["period"][:10], pt["ratio"] * scale, time_unit),
                 )
                 count += 1

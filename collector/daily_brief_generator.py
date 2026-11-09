@@ -171,11 +171,24 @@ def generate_brief(data: dict) -> str:
 
 
 def save_brief(cur, brief_text: str):
+    # DO NOTHING 인 이유: 같은 칸을 web/lib/ai.ts 도 쓴다.
+    # 웹 쪽은 자정에, 여기는 09시에 돌아서 매일 이쪽이 덮어쓰고 있었다.
+    # 그런데 웹 프롬프트가 훨씬 정교하다 — "나타냅니다/시사합니다" 같은
+    # 표현과 데이터 재나열을 금지하고, 변하지 않은 건 쓰지 말라고 한다.
+    # 그 결과물을 이쪽의 느슨한 결과로 덮어쓰면 브리핑이 총평만 남는다.
+    # 웹이 못 만든 날에는 여기가 채우는 보조 역할로 둔다.
     cur.execute("""
         INSERT INTO oliveyoung.daily_briefs (brief_date, brief_text)
-        VALUES (CURRENT_DATE, %s)
-        ON CONFLICT (brief_date) DO UPDATE SET brief_text = EXCLUDED.brief_text, generated_at = NOW()
+        VALUES ((now() AT TIME ZONE 'Asia/Seoul')::date, %s)
+        ON CONFLICT (brief_date) DO NOTHING
     """, (brief_text,))
+    return cur.rowcount          # 0 이면 이미 있어서 건너뛴 것
+
+
+def brief_exists_today(cur) -> bool:
+    cur.execute("""SELECT 1 FROM oliveyoung.daily_briefs
+                   WHERE brief_date = (now() AT TIME ZONE 'Asia/Seoul')::date""")
+    return cur.fetchone() is not None
 
 
 def main():
@@ -183,12 +196,18 @@ def main():
     try:
         with conn:
             with conn.cursor() as cur:
+                # 이미 있으면 LLM 을 부르지 않는다. 불러 놓고 버리면 돈만 나간다.
+                if brief_exists_today(cur):
+                    log.info("오늘 브리핑이 이미 있다 (웹에서 생성) — 건너뛴다")
+                    return
                 log.info("데이터 수집 중...")
                 data = fetch_data(cur)
                 log.info("브리핑 생성 중 (gpt-4o)...")
                 brief = generate_brief(data)
-                save_brief(cur, brief)
-                log.info("저장 완료:\n%s", brief)
+                if save_brief(cur, brief):
+                    log.info("저장 완료:\n%s", brief)
+                else:
+                    log.info("그 사이 웹이 먼저 저장했다 — 건너뛴다")
     finally:
         conn.close()
 
