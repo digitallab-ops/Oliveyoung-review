@@ -91,7 +91,10 @@ BASE_HEADERS = {
 
 # 올영픽 — 매월 기획전 교체. dispCatNo를 이벤트 목록에서 자동 탐색
 OLIVEPICK_URL = 'https://www.oliveyoung.co.kr/store/planshop/getPlanShopDetail.do'
-OLIVEPICK_CAT = '5000001000199QH'  # fallback — 자동 탐색 실패 시 사용 (2026-09)
+# fallback — 자동 탐색(fetch_olivepick_catno)이 실패했을 때만 쓴다.
+# 올영픽은 기획전이 바뀔 때마다 dispCatNo 가 바뀌므로 이 값은 반드시 낡는다.
+# 바뀌면 수집기가 슬랙으로 알려 주니 그때 갱신한다.
+OLIVEPICK_CAT = '500000100019B98'  # 2026-11 기획전 (이전: 5000001000199QH, 2026-09)
 
 EVENT_LIST_URL = 'https://www.oliveyoung.co.kr/store/main/getEventList.do'
 OLIVEPICK_EVT_KEYWORDS = ['올영PICK', '올영픽', 'OLIVEYOUNG PICK']
