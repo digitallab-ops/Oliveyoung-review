@@ -5,8 +5,13 @@ $transcript = "$LOG_DIR\run_review_collector_$(Get-Date -Format 'yyyyMMdd_HHmmss
 Start-Transcript -Path $transcript -Append -Force | Out-Null
 try {
     . "$REPO\scripts\_common.ps1"
-    Invoke-Collector -module "collector.pipeline"       -label "Pipeline"      -timeoutMin 30 -sentinelStage "review"
-    Invoke-Collector -module "collector.rank_collector" -label "RankCollector" -timeoutMin 10 -sentinelStage "rank"
+    # timeoutMin 은 원래 받기만 하고 쓰이지 않아서, 40분 걸려도 그냥 돌았다.
+    # 실제로 적용되게 고친 뒤 30분이 정상 실행(23~36분)을 자르기 시작했다.
+    # 평소보다 확실히 오래 걸릴 때만 끊기도록 여유를 둔다.
+    # 작업 자체의 제한은 45분(OY_ReviewCollector)이라 그 안에 들어가야 한다 —
+    # 뒤의 순위 수집까지 포함해 36+5 = 41분.
+    Invoke-Collector -module "collector.pipeline"       -label "Pipeline"      -timeoutMin 36 -sentinelStage "review"
+    Invoke-Collector -module "collector.rank_collector" -label "RankCollector" -timeoutMin 5  -sentinelStage "rank"
 } catch {
     Write-Host "FATAL: $_"
     $global:OY_FAILED = [int]$global:OY_FAILED + 1
