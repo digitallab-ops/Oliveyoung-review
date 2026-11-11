@@ -32,6 +32,13 @@ MAX_DELAY    = 30.0
 BACKOFF      = 90.0
 REFRESH_DAYS = 7
 
+# 순위에 안 나온 지 오래된 경쟁사는 수집 대상에서 뺀다.
+# 추적 경쟁사 2,214개 중 700개 가까이가 두 달 넘게 순위에 없었는데,
+# 그 가격을 쫓느라 하루 100개 정원을 다 써서 정작 중요한 제품이
+# 한 달에 한 번밖에 갱신되지 않았다. REFRESH_DAYS=7 이 의도한 주 1회를
+# 지키려면 대상이 한 주 정원(100 x 실행횟수 x 7) 안에 들어와야 한다.
+ACTIVE_DAYS  = 30
+
 
 def _warm_session():
     try:
@@ -81,17 +88,28 @@ def run(limit: int = BATCH_SIZE):
         stale_threshold = date.today() - timedelta(days=REFRESH_DAYS)
 
         with conn.cursor() as cur:
-            # 자사(is_competitor=false) 우선 — 46개뿐이고 가격 비교의 기준값
+            # 자사(is_competitor=false) 우선 — 46개뿐이고 가격 비교의 기준값.
+            # 자사는 순위와 무관하게 늘 수집한다. 경쟁사는 최근 ACTIVE_DAYS 안에
+            # 순위에 한 번이라도 올라온 것만 본다 — 이미 빠진 제품의 가격은
+            # 비교 대상이 아니고, 정원만 잡아먹는다.
             cur.execute("""
                 SELECT goods_no, goods_name
-                FROM products
+                FROM products p
                 WHERE (price IS NULL OR detail_fetched_at < %s)
+                  AND (
+                      NOT is_competitor
+                      OR EXISTS (
+                          SELECT 1 FROM market_rankings m
+                          WHERE m.goods_no = p.goods_no
+                            AND m.rank_date >= CURRENT_DATE - %s::int
+                      )
+                  )
                 ORDER BY
                     is_competitor,
                     CASE WHEN price IS NULL THEN 0 ELSE 1 END,
                     COALESCE(detail_fetched_at, '2000-01-01') ASC
                 LIMIT %s
-            """, (stale_threshold, limit))
+            """, (stale_threshold, ACTIVE_DAYS, limit))
             products = list(cur.fetchall())
 
         if not products:
