@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry, DiscountEntry, DiscountStatus } from './types'
 
 // 홈 페이지가 한 번에 19개 쿼리를 던진다. max:2면 전부 큐에 걸려
 // 벽시계 시간이 DB 작업 총량의 절반까지 늘어난다(실측 64초 → 빌드 60초 제한 초과).
@@ -1595,6 +1595,112 @@ export async function getPriceChanges(days = 90, minPct = 5): Promise<PriceChang
       }
     })
   } catch (e) { dbErr('getPriceChanges', e); return [] }
+}
+
+// ─────────────────────────────────────────
+// 할인 현황 — 세일가 기준
+//
+// getPriceChanges 는 price_history.price 를 본다. 그런데 그 컬럼은
+// 수집기가 "정가"를 넣는 자리다(price_collector.py 의 keep = base or sale).
+// 정가는 거의 안 움직이니 가격 변동이 65개밖에 안 잡혔다.
+// 실제로 움직이는 건 sale_price 이고, 2026-11-06 부터 쌓이기 시작했다.
+// 이 함수는 그 컬럼을 본다. 기존 함수는 의미가 달라 건드리지 않는다.
+// ─────────────────────────────────────────
+
+export async function getDiscountStatus(days = 14, limit = 60): Promise<DiscountStatus> {
+  const empty: DiscountStatus = {
+    entries: [], ours_avg: null, rival_avg: null,
+    ours_count: 0, rival_count: 0, since: null,
+  }
+  try {
+    // days 에 ::int 캐스팅이 없으면 Postgres 가 date - date -> integer 로
+    // 풀어서 'date >= integer' 로 터진다. getPriceChanges 가 겪은 그 버그다.
+    const rows = await query<{
+      goods_no: string; goods_name: string; is_competitor: boolean
+      category_name: string | null; rank_position: number | null
+      base_price: number; sale_price: number; discount_rate: number
+      recorded_on: string
+    }>(`
+      WITH latest AS (
+        SELECT DISTINCT ON (h.goods_no)
+               h.goods_no, h.base_price, h.sale_price,
+               h.discount_rate, h.recorded_date
+        FROM price_history h
+        WHERE h.sale_price IS NOT NULL
+          AND h.base_price IS NOT NULL
+          AND h.recorded_date >= CURRENT_DATE - $1::int
+        ORDER BY h.goods_no, h.recorded_date DESC
+      )
+      SELECT p.goods_no, p.goods_name, p.is_competitor,
+             mr.category_name, mr.rank_position,
+             l.base_price, l.sale_price, l.discount_rate,
+             l.recorded_date::text AS recorded_on
+      FROM latest l
+      JOIN products p ON p.goods_no = l.goods_no
+      LEFT JOIN LATERAL (
+        SELECT category_name, rank_position FROM market_rankings
+        WHERE goods_no = l.goods_no
+          AND rank_date = (SELECT MAX(rank_date) FROM market_rankings)
+          AND category_name <> '전체'
+        ORDER BY rank_position LIMIT 1
+      ) mr ON true
+      WHERE l.discount_rate > 0
+      ORDER BY l.discount_rate DESC
+      LIMIT $2::int
+    `, [days, limit])
+
+    const entries: DiscountEntry[] = rows.map(r => ({
+      goods_no: r.goods_no,
+      goods_name: r.goods_name,
+      brand_name: r.goods_name.replace(/\[[^\]]*\]/g, '').trim().split(/\s+/)[0] ?? '',
+      is_ours: !r.is_competitor,
+      category_name: r.category_name,
+      rank_position: r.rank_position != null ? Number(r.rank_position) : null,
+      base_price: Number(r.base_price),
+      sale_price: Number(r.sale_price),
+      discount_rate: Number(r.discount_rate),
+      recorded_on: r.recorded_on,
+    }))
+
+    // 평균은 화면에 실린 limit 건이 아니라 기간 전체를 봐야 한다.
+    // TOP N 만 평균 내면 "둘 다 50%" 같은 의미 없는 숫자가 나온다.
+    const agg = await query<{
+      is_competitor: boolean; n: number; avg_rate: number | null
+    }>(`
+      WITH latest AS (
+        SELECT DISTINCT ON (h.goods_no)
+               h.goods_no, h.discount_rate
+        FROM price_history h
+        WHERE h.sale_price IS NOT NULL
+          AND h.recorded_date >= CURRENT_DATE - $1::int
+        ORDER BY h.goods_no, h.recorded_date DESC
+      )
+      SELECT p.is_competitor,
+             COUNT(*) AS n,
+             ROUND(AVG(l.discount_rate), 1) AS avg_rate
+      FROM latest l
+      JOIN products p ON p.goods_no = l.goods_no
+      WHERE l.discount_rate > 0
+      GROUP BY p.is_competitor
+    `, [days])
+
+    const ours  = agg.find(a => !a.is_competitor)
+    const rival = agg.find(a =>  a.is_competitor)
+
+    const since = await query<{ d: string | null }>(`
+      SELECT MIN(recorded_date)::text AS d
+      FROM price_history WHERE sale_price IS NOT NULL
+    `, [])
+
+    return {
+      entries,
+      ours_avg:  ours?.avg_rate  != null ? Number(ours.avg_rate)  : null,
+      rival_avg: rival?.avg_rate != null ? Number(rival.avg_rate) : null,
+      ours_count:  ours  ? Number(ours.n)  : 0,
+      rival_count: rival ? Number(rival.n) : 0,
+      since: since[0]?.d ?? null,
+    }
+  } catch (e) { dbErr('getDiscountStatus', e); return empty }
 }
 
 // ─────────────────────────────────────────

@@ -12,7 +12,7 @@ import type {
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
   OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
-  CompetitorInsight, UnitPriceGroup, PriceChangeEntry,
+  CompetitorInsight, UnitPriceGroup, PriceChangeEntry, DiscountStatus,
 } from '@/lib/types'
 
 interface Props {
@@ -40,6 +40,7 @@ interface Props {
   competitorInsights: CompetitorInsight[]
   unitPrices: UnitPriceGroup[]
   priceChanges: PriceChangeEntry[]
+  discountStatus: DiscountStatus
 }
 
 export default function PlatformShell({
@@ -47,7 +48,7 @@ export default function PlatformShell({
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus,
-  productKeywords, productTopics, competitorInsights, unitPrices, priceChanges,
+  productKeywords, productTopics, competitorInsights, unitPrices, priceChanges, discountStatus,
 }: Props) {
   const [platform, setPlatform] = useState<Platform>('oliveyoung')
 
@@ -131,6 +132,7 @@ export default function PlatformShell({
             competitorInsights={competitorInsights}
             unitPrices={unitPrices}
             priceChanges={priceChanges}
+            discountStatus={discountStatus}
           />
         </>
       )}

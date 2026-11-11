@@ -325,6 +325,28 @@ export interface PriceChangeEntry {
   changed_on: string
 }
 
+export interface DiscountEntry {
+  goods_no: string
+  goods_name: string
+  brand_name: string
+  is_ours: boolean
+  category_name: string | null
+  rank_position: number | null
+  base_price: number
+  sale_price: number
+  discount_rate: number
+  recorded_on: string
+}
+
+export interface DiscountStatus {
+  entries: DiscountEntry[]
+  ours_avg: number | null
+  rival_avg: number | null
+  ours_count: number
+  rival_count: number
+  since: string | null
+}
+
 export interface RepurchaseTrendPoint {
   month: string
   repurchase_pct: number

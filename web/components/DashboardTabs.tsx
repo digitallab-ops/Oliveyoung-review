@@ -7,7 +7,7 @@ import type {
   ProductStats, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData,
   MarketCategoryData, NewProductData, NegativeAlertData,
   OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData,
-  CompetitorInsight, UnitPriceGroup, PriceChangeEntry,
+  CompetitorInsight, UnitPriceGroup, PriceChangeEntry, DiscountStatus,
 } from '@/lib/types'
 
 import InsightCards from '@/components/InsightCards'
@@ -30,6 +30,7 @@ import ActionLogWidget from '@/components/ActionLogWidget'
 import BrandTimeline from '@/components/BrandTimeline'
 import UnitPriceSection from '@/components/UnitPriceSection'
 import PriceChangeSection from '@/components/PriceChangeSection'
+import DiscountSection from '@/components/DiscountSection'
 import DetailPageTab from '@/components/DetailPageTab'
 
 interface Props {
@@ -56,6 +57,7 @@ interface Props {
   competitorInsights: CompetitorInsight[]
   unitPrices: UnitPriceGroup[]
   priceChanges: PriceChangeEntry[]
+  discountStatus: DiscountStatus
 }
 
 function renderBold(text: string): React.ReactNode {
@@ -85,7 +87,7 @@ export default function DashboardTabs({
   summaries, competitorSummaries, insightsHistory, rankingsByMode, rankingsLastCollected,
   marketRankings, aiInsight, reviewInsight, dailyBrief,
   newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, productTopics,
-  competitorInsights, unitPrices, priceChanges,
+  competitorInsights, unitPrices, priceChanges, discountStatus,
 }: Props) {
   const [active, setActive] = useState<TabId>('today')
   const [refreshing, setRefreshing] = useState(false)
@@ -310,6 +312,7 @@ export default function DashboardTabs({
         {/* 경쟁사 — 누가 치고 오나 */}
         {active === 'competitor' && (
           <div className="space-y-10">
+            <DiscountSection data={discountStatus} />
             <PriceChangeSection changes={priceChanges} />
             <CompetitorSection summaries={competitorSummaries} insights={competitorInsights} />
             <div>

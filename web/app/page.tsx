@@ -1,4 +1,4 @@
-import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getCompetitorSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights, getCompetitorInsights, getUnitPriceComparison, getPriceChanges } from '@/lib/db'
+import { getStats, getInsights, getScoreDist, getProductStats, getTimeSeries, getProductNegatives, getProductSummaries, getCompetitorSummaries, getInsightsHistory, getProductRankingsByMode, getMarketRankings, getNewProducts, getNegativeAlerts, getOurRankingTimeline, getPromoStatus, getProductKeywords, getProductTopicInsights, getCompetitorInsights, getUnitPriceComparison, getPriceChanges, getDiscountStatus } from '@/lib/db'
 import { readMarketInsight, readReviewInsight, readDailyBrief } from '@/lib/ai'
 import PlatformShell from '@/components/PlatformShell'
 import FeatureGuide from '@/components/FeatureGuide'
@@ -42,7 +42,7 @@ export default async function Page() {
   const insightsDefault = { positive_keywords: [], negative_keywords: [], total_reviews: 0, skin_dist: [], top_product: null }
   const rankingsDefault = { best: [], avg: [], weekly: [], lastCollected: {} }
 
-  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, competitorInsights, unitPrices, priceChanges, productTopics] = await Promise.all([
+  const [stats, insights, scoreDist, productStats, timeSeries, negativeData, summaries, competitorSummaries, insightsHistory, rankingsData, marketRankings, newProducts, negativeAlerts, todayTimeline, promoStatus, productKeywords, competitorInsights, unitPrices, priceChanges, discountStatus, productTopics] = await Promise.all([
     safe(getStats, statsDefault),
     safe(getInsights, insightsDefault),
     safe(getScoreDist, []),
@@ -62,6 +62,10 @@ export default async function Page() {
     safe(getCompetitorInsights, []),
     safe(getUnitPriceComparison, []),
     safe(() => getPriceChanges(), []),
+    safe(() => getDiscountStatus(), {
+      entries: [], ours_avg: null, rival_avg: null,
+      ours_count: 0, rival_count: 0, since: null,
+    }),
     // 혼자 Promise.all 밖에서 순차로 돌아 전체 렌더에 그대로 더해지고 있었다
     safe(getProductTopicInsights, []),
   ])
@@ -144,6 +148,7 @@ export default async function Page() {
           competitorInsights={competitorInsights}
           unitPrices={unitPrices}
           priceChanges={priceChanges}
+          discountStatus={discountStatus}
         />
 
           {/* 푸터 */}
