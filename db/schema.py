@@ -346,6 +346,23 @@ def init_db(conn=None):
                 CREATE INDEX IF NOT EXISTS idx_brand_events_brand
                     ON brand_events(brand_name, event_date DESC)
             """)
+            # event_detector 의 _save_events 는 ON CONFLICT DO NOTHING 으로
+            # 중복을 막는다고 적혀 있었지만, 걸 유니크 제약이 없어서 실제로는
+            # 아무것도 걸러 내지 못했다. 같은 날 감지기가 두 번 돌면 그대로
+            # 두 줄이 쌓였다(2026-09-29 의 117행이 그렇게 생겼다).
+            #
+            # 키에 category_name 이 들어가야 한다. 한 상품이 같은 날 '선케어'
+            # 와 '더모 코스메틱' 양쪽에서 순위가 뛰는 건 서로 다른 사건이고,
+            # 카테고리를 빼면 그런 1,827 건이 중복으로 몰려 지워진다.
+            #
+            # olivepick 입·이탈과 신제품·가격급락은 category_name 이 NULL 이다.
+            # 기본 유니크 인덱스는 NULL 을 서로 다른 값으로 보기 때문에 그쪽은
+            # 전혀 막히지 않는다. NULLS NOT DISTINCT 로 NULL 끼리도 같다고 본다.
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS brand_events_uniq
+                    ON brand_events (event_date, event_type, goods_no, category_name)
+                    NULLS NOT DISTINCT
+            """)
             cur.execute("""
                 ALTER TABLE reviews
                     ADD COLUMN IF NOT EXISTS has_photo BOOLEAN NOT NULL DEFAULT false

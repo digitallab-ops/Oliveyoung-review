@@ -305,7 +305,16 @@ def detect_price_drops(conn, today: date) -> list[dict]:
 
 
 def _save_events(conn, events: list[dict]) -> int:
-    """brand_events에 저장 (날짜+타입+goods_no 중복 SKIP)"""
+    """brand_events 에 저장.
+
+    중복 SKIP 의 기준은 (event_date, event_type, goods_no, category_name) 이다.
+    brand_events_uniq 유니크 인덱스가 그 키를 들고 있고, 아래 ON CONFLICT DO
+    NOTHING 이 그걸 물고 동작한다. 2026-11-12 이전에는 그 인덱스가 없어서
+    이 구문이 아무것도 걸러 내지 못했다(db/schema.py 의 해당 주석 참고).
+
+    category_name 을 키에서 빼면 안 된다. 한 상품이 같은 날 여러 카테고리에서
+    순위가 뛰는 건 서로 다른 사건이다.
+    """
     import json
     saved = 0
     with conn.cursor() as cur:
