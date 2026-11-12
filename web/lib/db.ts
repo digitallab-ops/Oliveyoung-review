@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry, DiscountEntry, DiscountStatus } from './types'
+import type { Stats, Product, Review, Insights, ProductStats, ScoreDist, ReviewsResponse, FilterType, TimeSeriesPoint, ProductNegativeData, ProductSummary, CompetitorSummary, InsightsSnapshot, ProductRankingData, MarketCategoryData, MarketRankingEntry, NewProductData, NegativeAlertData, OurRankingTimelineEntry, PromoStatusData, ProductKeywordData, ProductTopicData, OlivepickMonth, TodayDealHistoryResponse, PromoMonthlyInsight, BrandEvent, PriceHistoryPoint, RepurchaseTrendPoint, OlivepickRankTrendPoint, UnitPriceEntry, UnitPriceGroup, PriceChangeEntry, DiscountEntry, DiscountStatus, OurRankTrend } from './types'
 
 // 홈 페이지가 한 번에 19개 쿼리를 던진다. max:2면 전부 큐에 걸려
 // 벽시계 시간이 DB 작업 총량의 절반까지 늘어난다(실측 64초 → 빌드 60초 제한 초과).
@@ -408,12 +408,15 @@ export async function getTimeSeries(): Promise<TimeSeriesPoint[]> {
 }
 
 export async function getProductNegatives(): Promise<ProductNegativeData[]> {
-  const topProducts = await query<{ goods_no: string; goods_name: string; neg_count: string }>(`
-    SELECT r.goods_no, p.goods_name, COUNT(*) AS neg_count
+  // is_competitor 를 같이 읽는다. 이 목록은 시장 전체 상위 8개라 대부분 경쟁사인데,
+  // 브리핑 프롬프트가 이걸 통째로 '자사 리뷰 불만'이라고 써 보내고 있었다.
+  // 화면 쪽 소비자는 이 필드를 안 쓰므로 추가만 하고 쿼리 범위는 그대로 둔다.
+  const topProducts = await query<{ goods_no: string; goods_name: string; neg_count: string; is_competitor: boolean }>(`
+    SELECT r.goods_no, p.goods_name, p.is_competitor, COUNT(*) AS neg_count
     FROM reviews r
     JOIN products p ON r.goods_no = p.goods_no
     WHERE r.score <= 2 AND r.content IS NOT NULL AND r.content != ''
-    GROUP BY r.goods_no, p.goods_name
+    GROUP BY r.goods_no, p.goods_name, p.is_competitor
     ORDER BY neg_count DESC LIMIT 8
   `)
 
@@ -459,6 +462,7 @@ export async function getProductNegatives(): Promise<ProductNegativeData[]> {
     goods_no:   p.goods_no,
     goods_name: p.goods_name,
     neg_count:  Number(p.neg_count),
+    is_competitor: p.is_competitor,
     keywords: (kwMap.get(p.goods_no) ?? []).slice(0, 5).map(k => ({ word: k.word, cnt: Number(k.cnt) })),
     samples: (sampleMap.get(p.goods_no) ?? []).map(s => ({
       content:    s.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
@@ -863,6 +867,60 @@ export async function getNewProducts(withinDays = 30): Promise<NewProductData[]>
   }
 }
 
+/**
+ * 자사 상품의 최근 N일 일별 최고 순위.
+ *
+ * 브리핑이 "오늘 8계단 밀렸다"까지만 말하고 끝나는 이유는 하루치 delta 밖에
+ * 못 받아서였다. 같은 8계단이라도 6일째 내려오는 중인지, 어제 튄 걸 되돌린
+ * 건지에 따라 할 일이 완전히 달라진다. 그 판단 재료를 여기서 만든다.
+ *
+ * 하루에 여러 번(rank_hour) 수집되므로 날짜별 최고 순위 하나로 접는다.
+ * '전체' 카테고리는 다른 카테고리와 중복이라 뺀다.
+ */
+export async function getOurRankTrend(days = 7): Promise<OurRankTrend[]> {
+  try {
+    const rows = await query<{
+      category_name: string; goods_no: string; goods_name: string
+      rank_date: string; best: number
+    }>(`
+      SELECT mr.category_name,
+             mr.goods_no,
+             mr.goods_name,
+             mr.rank_date::text        AS rank_date,
+             MIN(mr.rank_position)     AS best
+      FROM market_rankings mr
+      JOIN products p ON mr.goods_no = p.goods_no
+      WHERE p.is_competitor = FALSE
+        AND mr.category_name <> '전체'
+        AND mr.rank_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - $1::int
+      GROUP BY mr.category_name, mr.goods_no, mr.goods_name, mr.rank_date
+      ORDER BY mr.category_name, mr.goods_no, mr.rank_date
+    `, [days - 1])
+
+    const byKey = new Map<string, OurRankTrend>()
+    for (const r of rows) {
+      const key = `${r.category_name}|${r.goods_no}`
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          category_name: r.category_name,
+          goods_no: r.goods_no,
+          goods_name: r.goods_name,
+          points: [],
+        })
+      }
+      byKey.get(key)!.points.push({ rank_date: r.rank_date, rank_position: Number(r.best) })
+    }
+    // 하루만 찍힌 건 추세라고 부를 수 없다. 최신 순위가 좋은 순으로 준다.
+    return [...byKey.values()]
+      .filter(t => t.points.length >= 2)
+      .sort((a, b) =>
+        a.points[a.points.length - 1].rank_position - b.points[b.points.length - 1].rank_position)
+  } catch (e) {
+    dbErr('getOurRankTrend', e)
+    return []
+  }
+}
+
 export async function getOurRankingTimeline(): Promise<OurRankingTimelineEntry[]> {
   try {
     return await query<OurRankingTimelineEntry>(`
@@ -943,6 +1001,22 @@ export async function getPromoStatus(): Promise<PromoStatusData[]> {
   }
 }
 
+/**
+ * 자사 부정 리뷰 급증 경보.
+ *
+ * reviews.created_at 은 date 가 아니라 'YYYY.MM.DD' 형식의 **텍스트**다(16.9만 행 전부).
+ * 여기서 비교 기준을 to_char(..., 'YYYY-MM-DD') 로 만들고 있었는데,
+ * 문자열 비교에서 '.'(46) > '-'(45) 이라 연도만 같으면 무조건 참이 된다.
+ *   '2026.01.01' >= '2026-11-05'  ->  true
+ * 그 결과 recent_neg 는 '최근 7일'이 아니라 '2026년 전체'였고,
+ * prev_neg 는 `< '2026-11-05'` 가 영원히 거짓이라 항상 0이었다.
+ * 화면의 '부정 리뷰 급증 N개 상품 감지' 가 매일 +100% 다섯 건을 띄운 이유다.
+ *
+ * 구분자를 점으로 맞추면 비교가 바로 선다(YYYY.MM.DD 는 사전순 = 날짜순).
+ * 다만 올바른 7일 창으로는 자사 부정 리뷰가 주당 12건 수준이라
+ * 상품당 3건 기준을 넘는 게 없어 경보가 0건이 된다. 그래서 창을 14일로 넓혔다.
+ * 되돌리려면 아래 14/28 을 7/14 로 바꾸면 된다(화면 문구도 같이).
+ */
 export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
   try {
     const rows = await query<{
@@ -951,15 +1025,15 @@ export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
     }>(`
       SELECT
         p.goods_no, p.goods_name,
-        COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')) AS recent_neg,
+        COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 14, 'YYYY.MM.DD')) AS recent_neg,
         COUNT(*) FILTER (WHERE r.score <= 2
-          AND r.created_at >= to_char(CURRENT_DATE - 14, 'YYYY-MM-DD')
-          AND r.created_at <  to_char(CURRENT_DATE - 7,  'YYYY-MM-DD')) AS prev_neg
+          AND r.created_at >= to_char(CURRENT_DATE - 28, 'YYYY.MM.DD')
+          AND r.created_at <  to_char(CURRENT_DATE - 14, 'YYYY.MM.DD')) AS prev_neg
       FROM reviews r
       JOIN products p ON r.goods_no = p.goods_no
       WHERE r.content IS NOT NULL AND p.is_competitor = false
       GROUP BY p.goods_no, p.goods_name
-      HAVING COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')) >= 3
+      HAVING COUNT(*) FILTER (WHERE r.score <= 2 AND r.created_at >= to_char(CURRENT_DATE - 14, 'YYYY.MM.DD')) >= 3
     `)
 
     const alerts = rows
@@ -985,7 +1059,7 @@ export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
         SELECT r.goods_no, UNNEST(REGEXP_MATCHES(r.content, '[가-힣]{2,6}', 'g')) AS word
         FROM reviews r
         WHERE r.goods_no = ANY($1) AND r.score <= 2
-          AND r.created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')
+          AND r.created_at >= to_char(CURRENT_DATE - 14, 'YYYY.MM.DD')
           AND r.content IS NOT NULL
       ) t
       WHERE word NOT IN (${STOPWORDS}) AND ${SUFFIX_FILTER} AND LENGTH(word) >= 2
@@ -997,7 +1071,7 @@ export async function getNegativeAlerts(): Promise<NegativeAlertData[]> {
         regexp_replace(content, '<[^>]+>', '', 'g') AS content
       FROM reviews
       WHERE goods_no = ANY($1) AND score <= 2
-        AND created_at >= to_char(CURRENT_DATE - 7, 'YYYY-MM-DD')
+        AND created_at >= to_char(CURRENT_DATE - 14, 'YYYY.MM.DD')
         AND content IS NOT NULL AND content != ''
       ORDER BY goods_no, created_at DESC
     `, [goodsNos])

@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { MarketCategoryData, Insights, ProductNegativeData } from './types'
+import type { MarketCategoryData, Insights, ProductNegativeData, OurRankTrend, DiscountStatus, NegativeAlertData } from './types'
 import { pool } from './db'
 
 let _client: OpenAI | null = null
@@ -53,78 +53,146 @@ async function chat(system: string, user: string, maxTokens: number): Promise<st
 // 1. 오늘의 통합 브리핑 (랭킹 + 리뷰 합산)
 // ──────────────────────────────────────────
 
+function fmtWon(n: number): string {
+  return n.toLocaleString('ko-KR')
+}
+
+/** 7일 순위 흐름을 "84 → 72 → ... → 55위 (7일 +29)" 한 줄로 접는다. */
+function fmtTrend(t: OurRankTrend): string {
+  const pts = t.points
+  const first = pts[0].rank_position
+  const last = pts[pts.length - 1].rank_position
+  const net = first - last                       // 양수 = 순위 상승
+  const seq = pts.map(p => p.rank_position).join(' → ')
+  const sign = net > 0 ? `+${net}` : `${net}`
+  return `[${t.category_name}] ${t.goods_name}: ${seq}위 (${pts.length}일 ${sign}계단)`
+}
+
 function buildDailyBriefPrompt(
   marketData: MarketCategoryData[],
   insights: Insights,
-  negativeData: ProductNegativeData[]
+  negativeData: ProductNegativeData[],
+  rankTrend: OurRankTrend[],
+  discount: DiscountStatus | null,
+  negAlerts: NegativeAlertData[]
 ): string {
-  const ours = marketData.flatMap(c =>
+  // 자사 7일 흐름. 하루치 delta 만으로는 "며칠째 어느 방향"을 말할 수 없다.
+  const trendLines = rankTrend.slice(0, 10).map(fmtTrend)
+
+  // 추세가 비면(수집 공백 등) 최소한 오늘 위치라도 넘긴다.
+  const oursToday = marketData.flatMap(c =>
     c.entries.filter(e => e.is_ours)
-      .map(e => `${c.category_name} ${e.rank_position}위${e.delta != null ? `(${e.delta > 0 ? '+' : ''}${e.delta})` : ''}`)
+      .map(e => `[${c.category_name}] ${e.goods_name} ${e.rank_position}위${e.delta != null ? `(${e.delta > 0 ? '+' : ''}${e.delta})` : ''}`)
   )
 
   const topRisers = marketData
     .flatMap(c => c.entries
-      .filter(e => e.delta != null && e.delta >= 5)
+      .filter(e => !e.is_ours && e.delta != null && e.delta >= 5)
       .map(e => ({ ...e, cat: c.category_name })))
     .sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))
-    .slice(0, 4)
-    .map(e => `[${e.cat}] ${e.goods_name} +${e.delta}위 → ${e.rank_position}위`)
+    .slice(0, 6)
+    .map(e => `[${e.cat}] ${e.goods_name} ${e.prev_rank}위 → ${e.rank_position}위 (+${e.delta})`)
 
   const newTop10 = marketData
     .flatMap(c => c.entries
-      .filter(e => e.prev_rank == null && e.rank_position <= 10)
+      .filter(e => !e.is_ours && e.prev_rank == null && e.rank_position <= 10)
       .map(e => `[${c.category_name}] ${e.goods_name} ${e.rank_position}위 신규진입`))
     .slice(0, 4)
 
-  const topNeg = negativeData
-    .sort((a, b) => b.neg_count - a.neg_count)
-    .slice(0, 4)
-    .map(p => {
-      const kw = p.keywords.slice(0, 3).map(k => k.word).join(', ')
-      return `${p.goods_name}: 불만 ${p.neg_count}건 (${kw})`
-    })
+  // 이 목록은 시장 전체 상위다. 섞어서 넘기면 모델이 전부 자사로 읽는다.
+  // 실제로 "자사 리뷰 불만이 디오디너리 466건" 같은 문장이 나갔다.
+  const fmtNeg = (p: ProductNegativeData) => {
+    const kw = p.keywords.slice(0, 3).map(k => k.word).join(', ')
+    return `${p.goods_name}: 불만 ${p.neg_count}건 (${kw})`
+  }
+  // 누적 건수는 '늘 많은 상품'만 반복해서 올라온다. 변화가 있는 건 급증 쪽이다.
+  // getNegativeAlerts 는 자사 전용이고 최근 7일 vs 직전 7일 비교라 브리핑 재료로 맞다.
+  const negSurge = negAlerts.slice(0, 4).map(a => {
+    const kw = a.top_keywords.slice(0, 3).map(k => k.word).join(', ')
+    return `${a.goods_name}: ${a.prev_neg}건 → ${a.recent_neg}건 (${a.increase_pct > 0 ? '+' : ''}${a.increase_pct}%)${kw ? ` (${kw})` : ''}`
+  })
+
+  const oursNeg  = negativeData.filter(p => !p.is_competitor).sort((a, b) => b.neg_count - a.neg_count).slice(0, 4).map(fmtNeg)
+  const rivalNeg = negativeData.filter(p =>  p.is_competitor).sort((a, b) => b.neg_count - a.neg_count).slice(0, 4).map(fmtNeg)
 
   const posKw = insights.positive_keywords.slice(0, 8).map(k => `${k.word}(${k.cnt})`).join(', ')
 
-  return `[셀퓨전씨 올리브영 오늘 현황 요약]
+  // 할인은 '경쟁사가 왜 올라왔나'를 설명하는 거의 유일한 재료다.
+  let discountBlock = '수집된 세일가 없음'
+  if (discount && discount.entries.length > 0) {
+    const ourTop = discount.entries.filter(d => d.is_ours).slice(0, 5)
+      .map(d => `${d.goods_name} ${d.discount_rate}% (${fmtWon(d.base_price)}→${fmtWon(d.sale_price)}원)`)
+    const rivalTop = discount.entries.filter(d => !d.is_ours).slice(0, 6)
+      .map(d => `${d.goods_name} ${d.discount_rate}% (${fmtWon(d.base_price)}→${fmtWon(d.sale_price)}원)`)
+    discountBlock = [
+      `평균 할인율 — 자사 ${discount.ours_avg ?? '—'}% (${discount.ours_count}개) / 경쟁사 ${discount.rival_avg ?? '—'}% (${discount.rival_count}개)`,
+      ourTop.length  ? `자사 할인 상위:
+${ourTop.join('\n')}`   : '자사 할인 상품 없음',
+      rivalTop.length ? `경쟁사 할인 상위:
+${rivalTop.join('\n')}` : '',
+    ].filter(Boolean).join('\n')
+  }
 
-셀퓨전씨 현재 랭킹:
-${ours.length ? ours.join(', ') : 'TOP100 없음'}
+  return `${getSeasonContext()}
 
-오늘 시장 급상승 (경쟁사):
+[자사 최근 순위 흐름 — 왼쪽이 과거, 오른쪽이 오늘]
+${trendLines.length ? trendLines.join('\n') : (oursToday.length ? oursToday.join('\n') : 'TOP100 없음')}
+
+[오늘 시장 급상승 — 경쟁사]
 ${topRisers.length ? topRisers.join('\n') : '없음'}
 
-오늘 TOP10 신규진입 (경쟁사):
+[오늘 TOP10 신규진입 — 경쟁사]
 ${newTop10.length ? newTop10.join('\n') : '없음'}
 
-자사 리뷰 불만 집중 상품:
-${topNeg.length ? topNeg.join('\n') : '없음'}
+[가격·할인 현황 (최근 14일, 정가 아닌 실제 판매가 기준)]
+${discountBlock}
 
-자사 긍정 키워드: ${posKw}
+[자사 리뷰 불만 급증 — 최근 14일 vs 직전 14일]
+${negSurge.length ? negSurge.join('\n') : '급증한 상품 없음'}
 
-오늘 이 대시보드를 처음 여는 마케터가 10초 안에 파악해야 할 것 4~5가지를 써라.
+[자사 리뷰 불만 — 누적 상위]
+${oursNeg.length ? oursNeg.join('\n') : '없음'}
 
-쓰는 법 — 이 형태를 지켜라:
-- <무엇이 어떻게 변했나(수치)>. <그래서 오늘 뭘 할지(구체적 행동)>.
+[경쟁사 리뷰 불만 — 시장 참고용, 자사 아님]
+${rivalNeg.length ? rivalNeg.join('\n') : '없음'}
+
+[자사 긍정 키워드]
+${posKw || '없음'}
+
+────────────────────────────────
+
+오늘 이 대시보드를 처음 여는 셀퓨전씨 마케터가 10초 안에 파악해야 할 것 4~5가지를 써라.
+
+각 bullet 은 반드시 아래 네 조각을 이 순서로 담아라. 하나라도 못 채우면 그 bullet 은 버리고 다른 소재를 써라.
+  (1) 근거 — 어떤 수치가 어떻게 움직였나. 위 데이터에 실제로 있는 숫자만 쓴다.
+  (2) 해석 — 왜 그렇게 움직였다고 보는가. 반드시 위 블록 중 '다른 블록'의 데이터와 연결해서 설명한다
+      (순위 ↔ 할인율, 순위 ↔ 시즌, 불만 키워드 ↔ 순위, 경쟁사 급등 ↔ 자사 가격 등).
+  (3) 예상 — 이대로 가면 어떻게 될 것 같은가. 시점과 방향을 숫자로 적는다
+      (예: "다음 주 안에 40위권 진입", "이번 달 안에 80위 밖으로 밀릴 것"). "지켜봐야 한다"는 예상이 아니다.
+  (4) 할 일 — 누가 무엇을 바꾸거나 확인하는가.
 
 좋은 예:
-- 잡티 토닝이 더모 98위에서 41위로 올라 처음 50위권에 들었다. 재고와 상세페이지 노출을 먼저 확인해라.
-- 쿨링 패드가 더모에서 24계단 밀려 100위다. 같은 구간 경쟁사가 1+1을 걸었는지 보고 기획전 일정을 당길지 판단해라.
+- 레이저 UV 썬스크린이 더모에서 7일간 84위에서 55위로 29계단 올라왔는데, 같은 기간 급등한 경쟁 선케어는 라로슈포제 톤업(+68), 이니스프리 톤업 1+1(+54)처럼 전부 톤업 축이다. 11월 들어 선케어 수요가 자외선이 아니라 톤 보정으로 옮겨가는 중이라, 지금 속도면 다음 주에 45위권까지는 올라가지만 톤업 소구가 없는 레이저 UV 는 그 위에서 막힐 가능성이 크다. 선케어 담당은 잡티 토닝 썬스크린을 톤업 키워드로 상세 첫 화면에 올리고, 레이저 UV 는 매끈·밀착 축으로 문구를 분리해 두 제품이 같은 검색어를 뺏지 않게 해라.
+- 자사 평균 할인율이 30%로 경쟁사 26%보다 4%p 높은데도 클렌징 3종(57%, 52%, 47%)은 TOP100 밖이다. 할인 폭이 순위로 돌아오지 않는 구간이라, 이대로 두면 이번 달 안에 마진만 깎이고 순위는 그대로일 가능성이 높다. 가격 담당은 클렌징 3종 할인율을 40%대로 되돌리고, 뺀 예산을 순위가 실제로 반응하는 선케어 기획가에 옮겨 2주간 차이를 확인해라.
 
 나쁜 예와 이유:
 - "평균 평점 4.78로 높게 유지되었습니다. 이는 소비자 만족도가 높음을 시사합니다."
-  → 변한 게 없고, 뒤 문장이 앞 문장을 바꿔 말한 것뿐이며, 할 일이 없다.
-- "마케팅 캠페인을 강화하고 개선 방안을 마련하세요."
-  → 어느 상품에 무엇을 하라는 건지 없다. 이런 총평 bullet은 쓰지 마라.
+  → 변한 게 없고, 뒷문장이 앞문장을 바꿔 말한 것뿐이며, 예상도 할 일도 없다.
+- "경쟁이 치열하므로 지속적인 마케팅 전략이 필요합니다."
+  → 어느 상품에 무엇을 하라는 건지 없다. 이런 총평 bullet 은 쓰지 마라.
+- "순위가 하락했으니 추이를 모니터링해야 합니다."
+  → 모니터링은 예상도 행동도 아니다.
 
 규칙:
+- '자사'는 셀퓨전씨뿐이다. [경쟁사] 로 표시된 블록의 상품을 자사라고 쓰면 그 브리핑은 틀린 것이다.
+- 위 데이터에 없는 숫자를 지어내지 마라. 모르는 건 쓰지 마라.
 - 변하지 않은 것은 쓰지 마라. 평점·리뷰 수가 평소와 같으면 한 줄도 쓰지 마라.
 - 한 문장을 다른 말로 반복하지 마라. "이는/즉/다시 말해"로 시작하는 뒷문장은 전부 삭제 대상이다.
-- 금지 표현: 나타냅니다, 시사합니다, 의미합니다, 보여줍니다, 암시합니다, 중요합니다,
-  긍정적입니다, 필요해 보입니다, 강화하세요, 모니터링하세요, 분석하세요.
-- 행동은 "누가 무엇을 확인/변경하는가"까지 적어라. "분석하세요"는 행동이 아니다.
-- 마지막에 '액션 포인트' 같은 종합 bullet을 붙이지 마라. 행동은 각 bullet 안에 있다.
+- 금지 표현(평서형 '-다' 꼴도 똑같이 금지): 나타냅니다/나타낸다, 시사합니다/시사한다,
+  의미합니다/의미한다, 보여줍니다/보여준다, 암시합니다/암시한다, 중요합니다/중요하다,
+  긍정적입니다, 필요해 보입니다, 강화하세요, 모니터링하세요, 분석하세요, 추이를 살펴보세요.
+  어떤 수치가 무엇을 '보여준다'고 쓰지 마라. 무엇이 어떻게 될지를 바로 써라.
+- 마지막에 '액션 포인트' 같은 종합 bullet 을 붙이지 마라. 행동은 각 bullet 안에 있다.
 - 쓸 거리가 3개뿐이면 3개만 써라. 수를 채우려 평범한 것을 올리지 마라.
 - 섹션 제목·번호 없이 첫 글자부터 "- "로 시작`
 }
@@ -167,7 +235,10 @@ export async function readReviewInsight(): Promise<string> {
 export async function generateDailyBrief(
   marketData: MarketCategoryData[],
   insights: Insights,
-  negativeData: ProductNegativeData[]
+  negativeData: ProductNegativeData[],
+  rankTrend: OurRankTrend[] = [],
+  discount: DiscountStatus | null = null,
+  negAlerts: NegativeAlertData[] = []
 ): Promise<string> {
   if (!process.env.OPENAI_API_KEY) return ''
 
@@ -182,7 +253,7 @@ export async function generateDailyBrief(
   } catch { /* 테이블 없으면 skip */ }
 
   try {
-    const text = await chat(NO_MARKDOWN_SYSTEM, buildDailyBriefPrompt(marketData, insights, negativeData), 1000)
+    const text = await chat(NO_MARKDOWN_SYSTEM, buildDailyBriefPrompt(marketData, insights, negativeData, rankTrend, discount, negAlerts), 2200)
     if (!text) return ''
 
     await pool.query(`

@@ -90,8 +90,25 @@ export interface ProductNegativeData {
   goods_no: string
   goods_name: string
   neg_count: number
+  /** 이 목록은 시장 전체 상위다. 자사만이 아니다 —
+   *  브리핑이 경쟁사 불만을 '자사 불만'으로 써 보낸 적이 있어 플래그를 실어 둔다. */
+  is_competitor: boolean
   keywords: KeywordItem[]
   samples: { content: string; score: number; created_at: string }[]
+}
+
+/** 자사 상품의 최근 N일 일별 최고 순위. 브리핑이 '오늘 몇 계단'이 아니라
+ *  '며칠째 어느 방향'을 말할 수 있게 하는 재료다. */
+export interface OurRankTrendPoint {
+  rank_date: string
+  rank_position: number
+}
+
+export interface OurRankTrend {
+  category_name: string
+  goods_no: string
+  goods_name: string
+  points: OurRankTrendPoint[]
 }
 
 export interface ProductSummary {

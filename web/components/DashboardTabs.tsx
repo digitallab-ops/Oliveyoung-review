@@ -234,7 +234,7 @@ export default function DashboardTabs({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-red-700">{a.goods_name}</p>
                         <p className="text-xs text-red-600 mt-0.5">
-                          최근 7일 부정 리뷰 {a.recent_neg}건
+                          최근 14일 부정 리뷰 {a.recent_neg}건
                           {a.prev_neg > 0 && ` (전주 대비 +${a.increase_pct}%)`}
                           {a.top_keywords.length > 0 && ` · ${a.top_keywords.map(k => k.word).join(', ')}`}
                         </p>

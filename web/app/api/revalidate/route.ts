@@ -9,7 +9,7 @@ function safeEqual(a: string, b: string): boolean {
   const y = Buffer.from(b)
   return x.length === y.length && timingSafeEqual(x, y)
 }
-import { getMarketRankings, getInsights, getProductNegatives, getProductTopicInsights } from '@/lib/db'
+import { getMarketRankings, getInsights, getProductNegatives, getProductTopicInsights, getOurRankTrend, getDiscountStatus, getNegativeAlerts } from '@/lib/db'
 import { generateMarketInsight, generateDailyBrief, generateReviewInsight } from '@/lib/ai'
 
 export const maxDuration = 60
@@ -39,14 +39,19 @@ export async function POST(req: Request) {
 
   // 수집 완료 직후 AI 캐시 워밍업 — 페이지 렌더 전에 DB에 결과 저장
   try {
-    const [marketRankings, insights, negativeData] = await Promise.all([
+    // 브리핑이 '예상'을 쓰려면 하루치 delta 말고 흐름과 가격이 필요하다.
+    // 둘 다 0.5초 미만 쿼리라 maxDuration 60초에 영향이 없다(실측 0.45s / 0.04s).
+    const [marketRankings, insights, negativeData, rankTrend, discount, negAlerts] = await Promise.all([
       getMarketRankings(),
       getInsights(),
       getProductNegatives(),
+      getOurRankTrend(7),
+      getDiscountStatus(14, 60),
+      getNegativeAlerts(),
     ])
     await Promise.all([
       marketRankings.length > 0 ? generateMarketInsight(marketRankings) : Promise.resolve(''),
-      marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData) : Promise.resolve(''),
+      marketRankings.length > 0 ? generateDailyBrief(marketRankings, insights, negativeData, rankTrend, discount, negAlerts) : Promise.resolve(''),
       generateReviewInsight(insights, negativeData),
       // 상품별 토픽은 렌더 경로에서 빼 왔다. 생성은 여기서만 한다.
       getProductTopicInsights(true),
