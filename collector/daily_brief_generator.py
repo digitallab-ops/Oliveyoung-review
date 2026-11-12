@@ -72,8 +72,30 @@ INSTRUCTIONS = """────────────────────�
 - "순위가 하락했으니 추이를 모니터링해야 합니다."
   → 모니터링은 예상도 행동도 아니다.
 
+이 시장의 순위는 '추세 지속'이 아니라 '되돌림'이 지배한다. 실측값이다(자사 상품 680쌍, 최근 120일):
+  - 지난 7일 방향이 다음 7일에도 이어진 비율    37pct
+  - 반대로 되돌아간 비율                        63pct
+  - 10계단 이상 크게 움직인 뒤 되돌아간 비율    71pct
+  - 자사 상품의 하루 간 순위 변동 중앙값        12계단
+그러므로:
+- "이 속도면 계속 오른다 / 계속 밀린다"는 틀릴 확률이 더 높다. 쓰지 마라.
+- 방향은 기계적으로 뒤집어서 시작해라. 헷갈리지 마라:
+    지난 7일 순위가 **올랐으면**(계단 수가 +) → 기본 예상은 **되밀림(순위가 나빠짐)**
+    지난 7일 순위가 **내렸으면**(계단 수가 -) → 기본 예상은 **반등(순위가 좋아짐)**
+  이 기본값을 뒤집어 쓰려면, 순위를 그 방향으로 붙잡아 둘 원인을 위 데이터에서 직접
+  짚어라 — 진행 중인 기획전·할인, 시즌 적합, 경쟁사 이탈, 불만 급증 같은 것.
+  원인을 못 짚으면 기본값대로 써라.
+- 하루 10계단 안쪽 움직임은 잡음이다. 그걸로 예상을 세우지 마라.
+- 예상의 근거는 '추세'가 아니라 '지속될 이유'여야 한다 — 기획전, 할인, 시즌, 경쟁사 진입,
+  리뷰 불만처럼 순위를 붙잡아 둘 원인이 보일 때만 방향이 이어진다고 써라.
+  그런 원인이 안 보이면 "원래 자리로 돌아올 가능성이 높다"가 더 정확한 예상이다.
+
 규칙:
 - '자사'는 셀퓨전씨뿐이다. [경쟁사] 로 표시된 블록의 상품을 자사라고 쓰면 그 브리핑은 틀린 것이다.
+- 누적 불만 건수는 전체 기간 합계다. '늘었다/줄었다/급증했다'로 쓰지 마라.
+  변화를 말할 수 있는 건 '불만 급증' 블록뿐이다.
+- 경쟁사 리뷰 데이터는 2026년 7월에 한 번 수집된 뒤 갱신이 없다.
+  경쟁사 불만을 '요즘/최근'이라고 쓰지 마라. 상품 특성으로만 참고해라.
 - 위 데이터에 없는 숫자를 지어내지 마라. 모르는 건 쓰지 마라.
 - 변하지 않은 것은 쓰지 마라. 평점·리뷰 수가 평소와 같으면 한 줄도 쓰지 마라.
 - 한 문장을 다른 말로 반복하지 마라. "이는/즉/다시 말해"로 시작하는 뒷문장은 전부 삭제 대상이다.
@@ -83,6 +105,9 @@ INSTRUCTIONS = """────────────────────�
   어떤 수치가 무엇을 '보여준다'고 쓰지 마라. 무엇이 어떻게 될지를 바로 써라.
 - 마지막에 '액션 포인트' 같은 종합 bullet 을 붙이지 마라. 행동은 각 bullet 안에 있다.
 - 쓸 거리가 3개뿐이면 3개만 써라. 수를 채우려 평범한 것을 올리지 마라.
+- 데이터 블록이 전부 '없음'이거나 쓸 근거가 하나도 없으면 **아무것도 출력하지 마라**.
+  빈 문자열을 반환해라. 데이터 없이 추측으로 bullet 을 만드는 건 최악이다.
+  '데이터가 없다는 점이 ~를 뜻한다' 같은 문장도 금지다. 없는 건 없는 거다.
 - 섹션 제목·번호 없이 첫 글자부터 "- "로 시작"""
 
 
@@ -107,6 +132,13 @@ def season_context(today: date) -> str:
     return f"지금은 늦가을({s}) — 겨울 진입 전, 집중 보습·트러블 케어 수요"
 
 
+# 프롬프트만으로는 못 막는다. 블록이 전부 비어도 모델은 "데이터가 없다는 점이
+# ~를 뜻한다" 식으로 4~5줄을 만들어 낸다(2026-11-12 실측, bullet 4개).
+# 수집이 실패한 날 그런 글이 대시보드에 걸리면 없느니만 못하다.
+# 재료 줄 수를 세서 이 아래면 LLM 을 아예 부르지 않는다.
+MIN_MATERIAL_LINES = 3
+
+
 def _block(title: str, lines: list) -> str:
     body = "\n".join(lines) if lines else "없음"
     return f"[{title}]\n{body}"
@@ -122,22 +154,32 @@ def build_prompt(cur) -> str:
 
     # ── 자사 7일 순위 흐름 ─────────────────────────────
     # 하루 여러 번(rank_hour) 수집되므로 날짜별 최고 순위로 접는다.
+    # goods_name 은 GROUP BY 에서 뺀다 — 같은 goods_no 에 이름이 두 가지로 들어간 날이
+    # 있었고(2026-11-02), 이름까지 묶으면 한 상품이 두 줄로 나와 모델이 서로 다른
+    # 제품으로 읽는다. 백테스트에서 실제로 "하나는 오르고 하나는 내렸다"가 나왔다.
     cur.execute("""
-        SELECT mr.category_name, mr.goods_no, mr.goods_name,
+        SELECT mr.category_name, mr.goods_no, MAX(mr.goods_name) AS goods_name,
                mr.rank_date, MIN(mr.rank_position) AS best
         FROM oliveyoung.market_rankings mr
         JOIN oliveyoung.products p ON mr.goods_no = p.goods_no
         WHERE p.is_competitor = FALSE
           AND mr.category_name <> '전체'
           AND mr.rank_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - 6
-        GROUP BY mr.category_name, mr.goods_no, mr.goods_name, mr.rank_date
+        GROUP BY mr.category_name, mr.goods_no, mr.rank_date
         ORDER BY mr.category_name, mr.goods_no, mr.rank_date
     """)
     trends = {}
+    # 키에 goods_name 을 넣으면 안 된다. MAX(goods_name) 은 날짜 그룹마다 계산되므로
+    # 어떤 날은 '셀퓨전씨[...] 레이저 UV', 어떤 날은 '셀퓨전씨[...] 셀퓨전씨 레이저 UV'
+    # 가 나와 한 상품이 두 줄로 갈라진다. 그러면 모델이 서로 다른 제품으로 읽고
+    # "같은 축인데 하나는 오르고 하나는 내렸다" 는 없는 이야기를 만든다(백테스트 실측).
+    names = {}
     for cat, gno, gname, rdate, best in cur.fetchall():
-        trends.setdefault((cat, gno, gname), []).append(int(best))
+        trends.setdefault((cat, gno), []).append(int(best))
+        names[(cat, gno)] = gname          # 마지막(=최신) 표기를 쓴다
     trend_lines = []
-    for (cat, _gno, gname), pts in trends.items():
+    for (cat, gno), pts in trends.items():
+        gname = names[(cat, gno)]
         if len(pts) < 2:          # 하루만 찍힌 건 추세가 아니다
             continue
         net = pts[0] - pts[-1]    # 양수 = 순위 상승
@@ -261,6 +303,9 @@ def build_prompt(cur) -> str:
         """, (is_competitor, limit))
         return [f"{n}: 불만 {c}건" for n, c in cur.fetchall()]
 
+    # 주의: 경쟁사 리뷰는 2026-07 에 한 번 수집된 뒤 멈췄다(124,209건/386개 상품,
+    # collected_at 이 전부 2026-07). 자사만 매일 들어온다. 그래서 경쟁사 불만은
+    # '지금 시장 신호'가 아니라 7월 스냅샷이고, 프롬프트에도 그렇게 라벨을 단다.
     ours_neg = negatives(False, 4)
     rival_neg = negatives(True, 4)
 
@@ -315,6 +360,12 @@ def build_prompt(cur) -> str:
             week_lines.append(f"자사 평균 평점 — 최근 7일 {avg_now} / 직전 7일 {avg_prev} "
                               f"({float(avg_now) - float(avg_prev):+.2f})")
 
+    material = (len(trend_lines) + len(risers) + len(new_top10) + len(disc_lines)
+                + len(neg_surge) + len(ours_neg) + len(week_lines))
+    if material < MIN_MATERIAL_LINES:
+        log.warning("재료가 %d줄뿐 — 브리핑을 만들지 않는다 (수집 실패 의심)", material)
+        return ""
+
     return "\n\n".join([
         season_context(today),
         _block("자사 최근 순위 흐름 — 왼쪽이 과거, 오른쪽이 오늘", trend_lines),
@@ -322,8 +373,8 @@ def build_prompt(cur) -> str:
         _block("오늘 TOP10 신규진입 — 경쟁사", new_top10),
         _block("가격·할인 현황 (최근 14일, 정가 아닌 실제 판매가 기준)", disc_lines),
         _block("자사 리뷰 불만 급증 — 최근 14일 vs 직전 14일", neg_surge),
-        _block("자사 리뷰 불만 — 누적 상위", ours_neg),
-        _block("경쟁사 리뷰 불만 — 시장 참고용, 자사 아님", rival_neg),
+        _block("자사 리뷰 불만 — 전체 기간 누적. 오늘의 변화가 아님", ours_neg),
+        _block("경쟁사 리뷰 불만 — 2026-07 스냅샷. 자사 아니고, 최신도 아님", rival_neg),
         _block("자사 리뷰 주간 변화", week_lines),
         INSTRUCTIONS,
     ])
@@ -371,6 +422,9 @@ def main(dry_run: bool = False):
                     return
                 log.info("데이터 수집 중...")
                 prompt = build_prompt(cur)
+                if not prompt:
+                    log.warning("재료 부족 — LLM 호출 없이 종료한다")
+                    return
                 log.info("브리핑 생성 중 (%s)...", MODEL)
                 brief = generate_brief(prompt)
                 if dry_run:

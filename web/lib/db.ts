@@ -875,6 +875,12 @@ export async function getNewProducts(withinDays = 30): Promise<NewProductData[]>
  * 건지에 따라 할 일이 완전히 달라진다. 그 판단 재료를 여기서 만든다.
  *
  * 하루에 여러 번(rank_hour) 수집되므로 날짜별 최고 순위 하나로 접는다.
+ *
+ * goods_name 은 GROUP BY 에서 뺀다. 같은 goods_no 에 이름 표기가 두 가지로 들어간
+ * 날이 실제로 있었고(2026-11-02, 브랜드명 중복 표기 건), 이름까지 묶으면 같은 날짜가
+ * points 에 두 번 들어가 흐름이 '45 → 20 → 32 → 42' 처럼 뒤섞인다.
+ * 그 상태로 브리핑에 넘기면 모델이 한 상품을 두 상품으로 읽고
+ * "같은 축인데 하나는 오르고 하나는 내렸다" 같은 없는 이야기를 만든다(백테스트에서 실측).
  * '전체' 카테고리는 다른 카테고리와 중복이라 뺀다.
  */
 export async function getOurRankTrend(days = 7): Promise<OurRankTrend[]> {
@@ -885,7 +891,7 @@ export async function getOurRankTrend(days = 7): Promise<OurRankTrend[]> {
     }>(`
       SELECT mr.category_name,
              mr.goods_no,
-             mr.goods_name,
+             MAX(mr.goods_name)        AS goods_name,
              mr.rank_date::text        AS rank_date,
              MIN(mr.rank_position)     AS best
       FROM market_rankings mr
@@ -893,7 +899,7 @@ export async function getOurRankTrend(days = 7): Promise<OurRankTrend[]> {
       WHERE p.is_competitor = FALSE
         AND mr.category_name <> '전체'
         AND mr.rank_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - $1::int
-      GROUP BY mr.category_name, mr.goods_no, mr.goods_name, mr.rank_date
+      GROUP BY mr.category_name, mr.goods_no, mr.rank_date
       ORDER BY mr.category_name, mr.goods_no, mr.rank_date
     `, [days - 1])
 

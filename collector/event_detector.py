@@ -159,9 +159,23 @@ def detect_rank_jumps(conn, today: date) -> list[dict]:
 
 
 def detect_review_surges(conn, today: date) -> list[dict]:
-    """이번 7일 리뷰 수가 전주 대비 REVIEW_SURGE_PCT% 이상 증가한 경쟁사 상품 감지"""
-    week_ago      = today - timedelta(days=7)
-    two_weeks_ago = today - timedelta(days=14)
+    """이번 7일 리뷰 수가 전주 대비 REVIEW_SURGE_PCT pct 이상 증가한 경쟁사 상품 감지.
+
+    reviews.created_at 은 date 가 아니라 'YYYY.MM.DD' 형식의 **텍스트**다(전 행).
+    여기에 str(date) 를 넘기면 '2026-11-05' 라 구분자가 달라진다. 문자열 비교에서
+    '.'(46) > '-'(45) 이라 연도만 같으면 앞쪽 비교가 전부 참이 되고,
+    `created_at < '2026-11-05'` 는 영원히 거짓이 된다.
+        '2026.01.01' >= '2026-11-05'  ->  true
+    그래서 prev_week 가 항상 0 이었고, 아래 `if prev_week == 0: continue` 에 걸려
+    review_surge 이벤트는 2026-07-08 이후 단 한 건도 만들어진 적이 없다.
+    (brand_events: rank_jump 27,665 / olivepick_exit 1,339 / review_surge 0)
+
+    구분자를 점으로 맞추면 비교가 바로 선다 — 'YYYY.MM.DD' 는 사전순 = 날짜순이다.
+    같은 버그가 web/lib/db.ts 의 getNegativeAlerts 에도 있었다. 한쪽만 고치지 말 것.
+    """
+    fmt = "%Y.%m.%d"
+    week_ago      = (today - timedelta(days=7)).strftime(fmt)
+    two_weeks_ago = (today - timedelta(days=14)).strftime(fmt)
     events = []
 
     with conn.cursor() as cur:
@@ -177,10 +191,10 @@ def detect_review_surges(conn, today: date) -> list[dict]:
             HAVING COUNT(*) FILTER (WHERE r.created_at >= %s::text) > 0
                AND COUNT(*) FILTER (WHERE r.created_at >= %s::text AND r.created_at < %s::text) > 0
         """, (
-            str(week_ago), str(two_weeks_ago), str(week_ago),
-            str(two_weeks_ago),
-            str(week_ago),
-            str(two_weeks_ago), str(week_ago),
+            week_ago, two_weeks_ago, week_ago,
+            two_weeks_ago,
+            week_ago,
+            two_weeks_ago, week_ago,
         ))
         rows = cur.fetchall()
 
