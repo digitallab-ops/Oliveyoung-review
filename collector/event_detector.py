@@ -18,7 +18,11 @@ from db.schema import get_conn, init_db
 # 감지 임계값
 RANK_JUMP_THRESHOLD  = 15   # 순위 N위 이상 상승 시 이벤트
 REVIEW_SURGE_PCT     = 80   # 전주 대비 N% 이상 증가 시 이벤트
-PRICE_DROP_PCT       = 10   # 전일 대비 N% 이상 하락 시 이벤트
+PRICE_DROP_PCT       = 10   # 직전 수집 대비 N% 이상 하락 시 이벤트
+
+# 가격 수집은 상품당 주 1회꼴이라 '어제 가격'이라는 건 존재하지 않는다.
+# 직전 기록이 이 일수보다 오래됐으면 '급락'으로 보지 않는다.
+PRICE_DROP_MAX_GAP_DAYS = 14
 
 
 def _brand_name(goods_name: str) -> str:
@@ -225,22 +229,57 @@ def detect_new_products(conn, today: date) -> list[dict]:
 
 
 def detect_price_drops(conn, today: date) -> list[dict]:
-    """전일 대비 PRICE_DROP_PCT% 이상 가격 하락한 상품 감지"""
-    yesterday = today - timedelta(days=1)
+    """직전 수집 대비 PRICE_DROP_PCT% 이상 세일가가 떨어진 상품 감지.
+
+    두 군데가 틀려 있어서 2026-11-12 까지 단 한 건도 잡히지 않았다.
+
+    1) price_history.price 를 비교했다. 그런데 그 컬럼은 수집기가 정가를
+       넣는 자리다(price_collector.py 의 keep = base or sale). 정가는 거의
+       움직이지 않으니 10% 하락이 나올 리가 없었다. 실제로 움직이는 건
+       sale_price 이고, 그 값은 2026-11-05 부터 쌓이기 시작했다.
+
+    2) 비교 대상을 '어제'로 못박았다(y.recorded_date = today - 1).
+       가격 수집은 상품당 주 1회꼴로 돈다(한 바퀴 약 7.6일). 그래서 어떤
+       상품도 이틀 연속으로 기록되지 않는다. 실제로 최근 14일간 연속 이틀
+       기록이 있는 상품은 0개였다 — 조인이 영원히 안 맞는 구조였다.
+
+    그래서 '어제' 대신 LAG 로 그 상품의 직전 기록을 집어서 비교한다.
+    다만 너무 오래된 기록과 비교하면 '급락'이라고 부를 수 없으므로
+    PRICE_DROP_MAX_GAP_DAYS 안쪽의 직전 기록만 본다.
+
+    오늘 기록된 건만 본다. brand_events 에는 (event_date, event_type,
+    goods_no) 유니크 제약이 없어서 _save_events 의 ON CONFLICT DO NOTHING
+    이 실제로는 아무것도 걸러 주지 못한다. 여러 날을 훑으면 그대로 중복이
+    쌓이므로 범위를 오늘로 제한한다.
+    """
     events = []
+    window_start = today - timedelta(days=PRICE_DROP_MAX_GAP_DAYS + 1)
 
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT t.goods_no, p.goods_name,
-                   y.price AS price_before, t.price AS price_after
-            FROM price_history t
-            JOIN price_history y ON t.goods_no = y.goods_no
-            JOIN products p ON t.goods_no = p.goods_no
-            WHERE t.recorded_date = %s
-              AND y.recorded_date = %s
-              AND y.price > 0
-              AND (y.price - t.price)::float / y.price * 100 >= %s
-        """, (today, yesterday, PRICE_DROP_PCT))
+            WITH hist AS (
+                SELECT goods_no, sale_price, recorded_date,
+                       LAG(sale_price)    OVER w AS prev_price,
+                       LAG(recorded_date) OVER w AS prev_date
+                FROM price_history
+                WHERE sale_price IS NOT NULL
+                  AND recorded_date >= %s
+                WINDOW w AS (PARTITION BY goods_no ORDER BY recorded_date)
+            )
+            SELECT h.goods_no, p.goods_name,
+                   h.prev_price   AS price_before,
+                   h.sale_price   AS price_after,
+                   h.prev_date,
+                   (h.recorded_date - h.prev_date) AS gap_days
+            FROM hist h
+            JOIN products p ON p.goods_no = h.goods_no
+            WHERE h.recorded_date = %s
+              AND h.prev_price IS NOT NULL
+              AND h.prev_price > 0
+              AND (h.recorded_date - h.prev_date) <= %s
+              AND (h.prev_price - h.sale_price) * 100.0 / h.prev_price >= %s
+            ORDER BY (h.prev_price - h.sale_price) * 100.0 / h.prev_price DESC
+        """, (window_start, today, PRICE_DROP_MAX_GAP_DAYS, PRICE_DROP_PCT))
         rows = cur.fetchall()
 
     for r in rows:
@@ -256,6 +295,10 @@ def detect_price_drops(conn, today: date) -> list[dict]:
                 'price_before': r['price_before'],
                 'price_after':  r['price_after'],
                 'drop_pct':     round(drop_pct, 1),
+                # 직전 기록이 며칠 전인지 같이 남긴다. 7일 전 대비 20% 하락과
+                # 하루 전 대비 20% 하락은 읽는 사람에게 전혀 다른 신호다.
+                'prev_date':    r['prev_date'].isoformat(),
+                'gap_days':     r['gap_days'],
             },
         })
     return events
