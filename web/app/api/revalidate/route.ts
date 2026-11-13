@@ -40,7 +40,13 @@ export async function POST(req: Request) {
   // 수집 완료 직후 AI 캐시 워밍업 — 페이지 렌더 전에 DB에 결과 저장
   try {
     // 브리핑이 '예상'을 쓰려면 하루치 delta 말고 흐름과 가격이 필요하다.
-    // 둘 다 0.5초 미만 쿼리라 maxDuration 60초에 영향이 없다(실측 0.45s / 0.04s).
+    // 추가 쿼리는 둘 다 0.5초 미만이다(실측 0.45s / 0.04s).
+    //
+    // 시간 예산은 쿼리가 아니라 **브리핑 생성**이 쓴다. generateDailyBrief 는
+    // 접지 검사에 걸리면 다시 만들기 때문에 모델을 최대 3번 부른다
+    // (GROUNDING_TRIES, web/lib/ai.ts). 호출당 실측 중앙 5.3초 / 최대 6.7초라
+    // 최악 약 20초다. 아래 Promise.all 의 셋은 동시에 도니까 maxDuration 60초에
+    // 40초쯤 여유가 남는다. 재시도 횟수를 올리려면 이 여유부터 다시 재라.
     const [marketRankings, insights, negativeData, rankTrend, discount, negAlerts] = await Promise.all([
       getMarketRankings(),
       getInsights(),
