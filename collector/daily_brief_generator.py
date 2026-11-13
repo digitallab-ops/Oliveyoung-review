@@ -34,6 +34,9 @@ OPENAI_KEY = os.environ["OPENAI_API_KEY"]
 
 # 웹(web/lib/ai.ts)과 같은 모델을 쓴다. 다른 모델을 쓰면 같은 데이터로도
 # 결과 품질이 갈려서 "어제는 좋았는데 오늘은 왜" 가 반복된다.
+from collector.brief_grounding import (load_brands, build_ground, verify,
+                                       format_violations)
+
 MODEL = os.environ.get("BRIEF_MODEL", "gpt-5.4-mini")
 
 # 웹의 NO_MARKDOWN_SYSTEM 과 같은 규칙.
@@ -177,15 +180,28 @@ def build_prompt(cur) -> str:
     for cat, gno, gname, rdate, best in cur.fetchall():
         trends.setdefault((cat, gno), []).append(int(best))
         names[(cat, gno)] = gname          # 마지막(=최신) 표기를 쓴다
-    trend_lines = []
+    # 한 상품이 여러 카테고리 TOP100 에 동시에 들어간다. 카테고리마다 한 줄씩
+    # 쓰면 모델이 **서로 다른 두 상품**으로 읽는다 — 2026-11-13 생산 브리핑이
+    # "포스트 알파 쿨링 패드는 62위에서 55위로 회복했지만 더모 코스메틱 쿨링
+    # 패드는 80위에서 93위로 밀렸다"고 썼다. 62는 마스크팩 줄, 55는 더모 줄에서
+    # 하나씩 집어온 것이고 두 줄은 같은 goods_no 다.
+    # 그래서 상품 단위로 한 줄에 합치고, 같은 상품임을 문장으로 못박는다.
+    by_goods = {}
     for (cat, gno), pts in trends.items():
-        gname = names[(cat, gno)]
         if len(pts) < 2:          # 하루만 찍힌 건 추세가 아니다
             continue
         net = pts[0] - pts[-1]    # 양수 = 순위 상승
         sign = f"+{net}" if net > 0 else str(net)
-        trend_lines.append((pts[-1], f"[{cat}] {gname}: "
-                                     f"{' → '.join(map(str, pts))}위 ({len(pts)}일 {sign}계단)"))
+        seg = f"[{cat}] {' → '.join(map(str, pts))}위 ({len(pts)}일 {sign}계단)"
+        g = by_goods.setdefault(gno, {"name": names[(cat, gno)], "segs": [], "best": 10_000})
+        g["segs"].append((pts[-1], seg))
+        g["best"] = min(g["best"], pts[-1])
+
+    trend_lines = []
+    for gno, v in by_goods.items():
+        segs = [s for _, s in sorted(v["segs"])]
+        tail = "   ※ 한 상품이다. 카테고리별 순위일 뿐 서로 다른 제품이 아니다" if len(segs) > 1 else ""
+        trend_lines.append((v["best"], f"{v['name']}: " + " | ".join(segs) + tail))
     trend_lines = [t for _, t in sorted(trend_lines)][:10]
 
     # ── 오늘 경쟁사 급등 / TOP10 신규진입 ───────────────
@@ -394,6 +410,36 @@ def generate_brief(prompt: str) -> str:
     return (resp.choices[0].message.content or "").strip()
 
 
+GROUNDING_TRIES = 3
+
+
+def generate_grounded(prompt: str, cur) -> str:
+    """생성하고 접지 검사를 통과한 것만 돌려준다. 못 넘기면 빈 문자열.
+
+    프롬프트 지시만으로는 환각을 못 막는다. 2026-11-13 생산 브리핑에서
+    급상승 블록은 이미 `82위 → 46위 (+36)` 라는 명시적 형식이었는데도
+    "아떼 무기자차 82위에서 46위"라고 썼다 — 아떼는 그날 블록에 없었다.
+    그래서 만든 뒤 기계로 대조하고, 틀리면 버리고 다시 만든다.
+
+    틀린 브리핑보다 빈 브리핑이 낫다. 3회 모두 실패하면 저장하지 않는다.
+    """
+    brands = load_brands(cur)
+    ground = build_ground(prompt, brands)
+    for attempt in range(1, GROUNDING_TRIES + 1):
+        text = generate_brief(prompt)
+        if not text:
+            log.warning("[접지 %d/%d] 빈 응답", attempt, GROUNDING_TRIES)
+            continue
+        V = verify(text, ground, brands)
+        if not V:
+            if attempt > 1:
+                log.info("[접지 %d/%d] 통과", attempt, GROUNDING_TRIES)
+            return text
+        log.warning("[접지 %d/%d] 위반 %d건 — 버리고 다시 만든다: %s",
+                    attempt, GROUNDING_TRIES, len(V), format_violations(V)[:300])
+    return ""
+
+
 def save_brief(cur, brief_text: str):
     # DO NOTHING 인 이유: 같은 칸을 web/lib/ai.ts 도 쓴다.
     # 웹은 KST 자정 직후, 여기는 09시에 돈다. 웹이 이미 썼으면 건드리지 않는다.
@@ -426,7 +472,11 @@ def main(dry_run: bool = False):
                     log.warning("재료 부족 — LLM 호출 없이 종료한다")
                     return
                 log.info("브리핑 생성 중 (%s)...", MODEL)
-                brief = generate_brief(prompt)
+                brief = generate_grounded(prompt, cur)
+                if not brief:
+                    log.error("접지 검사를 %d회 모두 통과하지 못했다 — 저장하지 않는다",
+                              GROUNDING_TRIES)
+                    return
                 if dry_run:
                     log.info("DRY RUN — 저장하지 않는다")
                     print(brief)

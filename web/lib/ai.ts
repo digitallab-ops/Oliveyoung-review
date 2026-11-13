@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import type { MarketCategoryData, Insights, ProductNegativeData, OurRankTrend, DiscountStatus, NegativeAlertData } from './types'
 import { pool } from './db'
+import { buildGround, verify, formatViolations } from './grounding'
 
 let _client: OpenAI | null = null
 function getClient() {
@@ -57,15 +58,41 @@ function fmtWon(n: number): string {
   return n.toLocaleString('ko-KR')
 }
 
-/** 7일 순위 흐름을 "84 → 72 → ... → 55위 (7일 +29)" 한 줄로 접는다. */
-function fmtTrend(t: OurRankTrend): string {
+/** 한 카테고리에서의 7일 흐름을 "[선케어] 84 → 72 → ... → 55위 (7일 +29계단)" 로 접는다. */
+function fmtSeg(t: OurRankTrend): string {
   const pts = t.points
-  const first = pts[0].rank_position
-  const last = pts[pts.length - 1].rank_position
-  const net = first - last                       // 양수 = 순위 상승
+  const net = pts[0].rank_position - pts[pts.length - 1].rank_position   // 양수 = 순위 상승
   const seq = pts.map(p => p.rank_position).join(' → ')
-  const sign = net > 0 ? `+${net}` : `${net}`
-  return `[${t.category_name}] ${t.goods_name}: ${seq}위 (${pts.length}일 ${sign}계단)`
+  return `[${t.category_name}] ${seq}위 (${pts.length}일 ${net > 0 ? `+${net}` : net}계단)`
+}
+
+/**
+ * 추세를 **상품 단위**로 한 줄에 합친다.
+ *
+ * 한 상품이 여러 카테고리 TOP100 에 동시에 들어간다. 카테고리마다 한 줄씩 쓰면
+ * 모델이 서로 다른 두 상품으로 읽는다 — 2026-11-13 생산 브리핑이
+ * "포스트 알파 쿨링 패드는 62위에서 55위로 회복했지만 더모 코스메틱 쿨링 패드는
+ * 80위에서 93위로 밀렸다"고 썼다. 62는 마스크팩 줄, 55는 더모 줄에서 하나씩
+ * 집어온 것이고 두 줄은 같은 goods_no 다.
+ */
+function fmtTrendLines(rankTrend: OurRankTrend[]): string[] {
+  const byGoods = new Map<string, { name: string; segs: [number, string][]; best: number }>()
+  for (const t of rankTrend) {
+    const last = t.points[t.points.length - 1].rank_position
+    const cur = byGoods.get(t.goods_no) ?? { name: t.goods_name, segs: [], best: Infinity }
+    cur.segs.push([last, fmtSeg(t)])
+    cur.best = Math.min(cur.best, last)
+    byGoods.set(t.goods_no, cur)
+  }
+  return [...byGoods.values()]
+    .sort((a, b) => a.best - b.best)
+    .slice(0, 10)
+    .map(v => {
+      const segs = v.segs.sort((a, b) => a[0] - b[0]).map(s => s[1])
+      const tail = segs.length > 1
+        ? '   ※ 한 상품이다. 카테고리별 순위일 뿐 서로 다른 제품이 아니다' : ''
+      return `${v.name}: ${segs.join(' | ')}${tail}`
+    })
 }
 
 function buildDailyBriefPrompt(
@@ -77,7 +104,7 @@ function buildDailyBriefPrompt(
   negAlerts: NegativeAlertData[]
 ): string {
   // 자사 7일 흐름. 하루치 delta 만으로는 "며칠째 어느 방향"을 말할 수 없다.
-  const trendLines = rankTrend.slice(0, 10).map(fmtTrend)
+  const trendLines = fmtTrendLines(rankTrend)
 
   // 추세가 비면(수집 공백 등) 최소한 오늘 위치라도 넘긴다.
   const oursToday = marketData.flatMap(c =>
@@ -257,6 +284,54 @@ export async function readReviewInsight(): Promise<string> {
 }
 
 
+const GROUNDING_TRIES = 3
+
+/** products.goods_name 앞머리에서 브랜드 토큰을 모은다. */
+async function loadBrands(): Promise<Set<string>> {
+  const out = new Set<string>()
+  try {
+    const r = await pool.query<{ goods_name: string }>('SELECT DISTINCT goods_name FROM products')
+    for (const row of r.rows) {
+      const b = (row.goods_name ?? '').trim().split(/[[\s]/)[0]
+      if (b.length >= 2 && !/^\d/.test(b)) out.add(b)
+    }
+  } catch (e) {
+    console.warn('[ai:loadBrands] 브랜드 목록을 못 읽었다 — 브랜드 검사는 건너뛴다', e)
+  }
+  return out
+}
+
+/**
+ * 생성하고 접지 검사를 통과한 것만 돌려준다. 못 넘기면 빈 문자열.
+ *
+ * 프롬프트 지시만으로는 환각을 못 막는다 — 2026-11-13 생산 브리핑에서 급상승
+ * 블록은 이미 `82위 → 46위 (+36)` 라는 명시적 형식이었는데도 "아떼 무기자차
+ * 82위에서 46위"라고 썼다. 아떼는 그날 블록에 한 줄도 없었다.
+ * 그래서 만든 뒤 기계로 대조하고, 틀리면 버리고 다시 만든다.
+ *
+ * 틀린 브리핑보다 빈 브리핑이 낫다. 3회 모두 실패하면 저장하지 않는다.
+ */
+async function generateGrounded(prompt: string): Promise<string> {
+  const brands = await loadBrands()
+  const ground = buildGround(prompt, brands)
+  for (let attempt = 1; attempt <= GROUNDING_TRIES; attempt++) {
+    const text = await chat(NO_MARKDOWN_SYSTEM, prompt, 2200)
+    if (!text) {
+      console.warn(`[ai:grounding ${attempt}/${GROUNDING_TRIES}] 빈 응답`)
+      continue
+    }
+    const V = verify(text, ground, brands)
+    if (V.length === 0) {
+      if (attempt > 1) console.info(`[ai:grounding ${attempt}/${GROUNDING_TRIES}] 통과`)
+      return text
+    }
+    console.warn(`[ai:grounding ${attempt}/${GROUNDING_TRIES}] 위반 ${V.length}건 — `
+      + `버리고 다시 만든다: ${formatViolations(V).slice(0, 300)}`)
+  }
+  console.error(`[ai:grounding] ${GROUNDING_TRIES}회 모두 불합격 — 저장하지 않는다`)
+  return ''
+}
+
 export async function generateDailyBrief(
   marketData: MarketCategoryData[],
   insights: Insights,
@@ -290,7 +365,8 @@ export async function generateDailyBrief(
   }
 
   try {
-    const text = await chat(NO_MARKDOWN_SYSTEM, buildDailyBriefPrompt(marketData, insights, negativeData, rankTrend, discount, negAlerts), 2200)
+    const prompt = buildDailyBriefPrompt(marketData, insights, negativeData, rankTrend, discount, negAlerts)
+    const text = await generateGrounded(prompt)
     if (!text) return ''
 
     await pool.query(`
